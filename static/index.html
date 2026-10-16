@@ -194,6 +194,35 @@
       align-items: center;
     }
 
+    .live-pulse-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      animation: pulse-glow 1.5s infinite;
+      margin-right: 5px;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    @keyframes pulse-glow {
+      0% {
+        transform: scale(0.9);
+        opacity: 0.6;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      }
+      70% {
+        transform: scale(1.2);
+        opacity: 1;
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+      }
+      100% {
+        transform: scale(0.9);
+        opacity: 0.6;
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+
     /* 筛选条 */
     .filter-bar {
       background: var(--card-bg);
@@ -579,9 +608,14 @@
       </div>
 
       <div class="header-actions">
+        <!-- 📋 智能粘贴/同步配额按钮 -->
+        <el-button type="success" :icon="icons.DocumentCopy" @click="quickPasteFromClipboard">
+          📋 智能粘贴配额
+        </el-button>
+
         <!-- 手动校准/填报配额按钮 -->
-        <el-button type="warning" :icon="icons.Edit" @click="openQuotaDialog">
-          ✏️ 手动校准/填报配额
+        <el-button type="warning" plain :icon="icons.Edit" @click="openQuotaDialog">
+          ✏️ 手动校准
         </el-button>
 
         <!-- 自动刷新控制 -->
@@ -913,12 +947,15 @@
             <span style="font-size: 18px; font-weight: 800; color: #fff;">🛡️ 5小时滑动释放 & 自然周限额监控中心</span>
             <el-tag size="small" type="success" effect="dark">本地 SQLite 离线秒级响应</el-tag>
           </div>
-          <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-size: 12px; color: #94a3b8;">
               上次本地扫描: <strong style="color: #60a5fa;">{{ meta.last_scan_time || '刚刚' }}</strong>
             </span>
+            <el-button size="small" type="success" plain :icon="icons.DocumentCopy" @click="quickPasteFromClipboard">
+              📋 智能粘贴
+            </el-button>
             <el-button size="small" type="warning" plain :icon="icons.Edit" @click="openQuotaDialog">
-              ✏️ 校准/填报当前配额
+              ✏️ 校准/填报配额
             </el-button>
           </div>
         </div>
@@ -957,9 +994,12 @@
                 <span style="color: #38bdf8; font-weight: 700;">{{ formatTokenMB(quotas.quota_5h.used_tokens) }} ({{ formatNum(quotas.quota_5h.used_tokens) }} Tokens · {{ quotas.quota_5h.calls }} 轮调用)</span>
               </div>
               <div class="quota-status-row" v-if="quotas.quota_5h.next_relief_seconds > 0">
-                <span style="color: #fbbf24;">⏳ 下批额度释放倒计时：</span>
-                <span style="color: #fbbf24; font-weight: 700; font-family: monospace;">
-                  {{ formatCountdown(reliefCountdown) }} (预计释放 ≈ {{ formatTokenMB(quotas.quota_5h.next_relief_tokens) }})
+                <span style="color: #fbbf24; display: flex; align-items: center;">
+                  <span class="live-pulse-dot" style="background: #fbbf24; box-shadow: 0 0 6px #fbbf24;"></span>
+                  <span>⏳ 下批额度释放倒计时：</span>
+                </span>
+                <span style="color: #fbbf24; font-weight: 800; font-family: monospace; font-size: 14px;">
+                  {{ formatCountdownLive(reliefCountdown) }} (预计释放 ≈ {{ formatTokenMB(quotas.quota_5h.next_relief_tokens) }})
                 </span>
               </div>
               <div class="quota-status-row" v-else>
@@ -967,9 +1007,15 @@
                 <span style="color: #34d399;">暂无积压消耗（额度充裕）</span>
               </div>
               <div class="quota-status-row">
-                <span style="color: #c084fc;">🎯 5H重置时间 / 倒计时：</span>
-                <span style="color: #c084fc; font-weight: 700; font-family: monospace;">
-                  {{ customQuota.quota_5h.reset_time_str ? customQuota.quota_5h.reset_time_str + ' · ' : '' }}倒计时 {{ formatCountdown(manual5hCountdown) }}
+                <span style="color: #c084fc; display: flex; align-items: center;">
+                  <span class="live-pulse-dot" style="background: #c084fc; box-shadow: 0 0 6px #c084fc;"></span>
+                  <span>🎯 5H重置倒计时：</span>
+                </span>
+                <span style="color: #c084fc; font-weight: 800; font-family: monospace; font-size: 14px;">
+                  {{ formatCountdownLive(manual5hCountdown) }}
+                  <span v-if="customQuota.quota_5h.reset_time_str" style="font-size: 11px; font-weight: normal; color: #94a3b8; margin-left: 4px;">
+                    ({{ customQuota.quota_5h.reset_time_str }})
+                  </span>
                 </span>
               </div>
             </div>
@@ -1012,9 +1058,15 @@
                 <span style="color: #fbbf24; font-weight: 700;">{{ formatTokenMB(quotas.quota_week.daily_burn_rate) }}/天</span>
               </div>
               <div class="quota-status-row">
-                <span style="color: #38bdf8;">🔄 自然周重置倒计时：</span>
-                <span style="color: #38bdf8; font-weight: 700; font-family: monospace;">
-                  {{ formatCountdown(weeklyResetCountdown) }} ({{ quotas.quota_week.next_reset_date }})
+                <span style="color: #38bdf8; display: flex; align-items: center;">
+                  <span class="live-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 6px #38bdf8;"></span>
+                  <span>🔄 自然周重置倒计时：</span>
+                </span>
+                <span style="color: #38bdf8; font-weight: 800; font-family: monospace; font-size: 14px;">
+                  {{ formatCountdownLive(manualWeekCountdown) }}
+                  <span v-if="customQuota.quota_week.reset_time_str" style="font-size: 11px; font-weight: normal; color: #94a3b8; margin-left: 4px;">
+                    ({{ customQuota.quota_week.reset_time_str }})
+                  </span>
                 </span>
               </div>
             </div>
@@ -1254,10 +1306,46 @@
       </div>
     </el-drawer>
 
-    <!-- ✏️ 配额手动校准与设置对话框 -->
-    <el-dialog v-model="quotaDialogVisible" title="✏️ 手动校准 / 填报 5H 与周配额重置时间" width="560px">
-      <div style="font-size: 13px; color: #94a3b8; margin-bottom: 16px; line-height: 1.6;">
-        您可以根据官方终端或工具中查询到的剩余额度与倒计时进行校准。保存后看板将自动记忆并开启秒表实时递减倒计时！
+    <!-- ✏️ 配额手动校准与智能识别对话框 -->
+    <el-dialog v-model="quotaDialogVisible" title="✏️ 配额校准 & 终端信息智能粘贴识别" width="600px">
+      <!-- 📋 终端输出智能识别卡片 -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px dashed #38bdf8; border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="font-weight: 700; color: #38bdf8; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+            <span>📋 智能识别终端输出 (直接粘贴 · 自动提取)</span>
+          </div>
+          <el-button size="small" type="primary" plain :icon="icons.DocumentCopy" @click="readFromClipboard">
+            一键读取系统剪贴板
+          </el-button>
+        </div>
+        <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px; line-height: 1.5;">
+          直接在下方粘贴终端返回的配额文本（支持包含方块进度条、百分比与 Refreshes in 倒计时）：
+        </div>
+        <el-input
+          v-model="pastedText"
+          type="textarea"
+          :rows="4"
+          placeholder="在此直接 Ctrl+V 粘贴终端文本，例如：
+Weekly Limit Remaining
+    [██████████████████████████████████████████░░░░░░░░] 83.28%
+    Refreshes in 160h 50m
+
+Five Hour Limit Remaining
+    [██████████████████████████████████████░░░░░░░░░░░░] 76.90%
+    Refreshes in 2h 50m"
+          @input="handleSmartPaste"
+        ></el-input>
+
+        <div v-if="smartPasteMsg" style="margin-top: 10px; font-size: 12px; padding: 8px 12px; border-radius: 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #34d399;">
+          <span>✅ {{ smartPasteMsg }}</span>
+        </div>
+      </div>
+
+      <!-- 分隔线 -->
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+        <div style="height: 1px; background: rgba(255,255,255,0.1); flex: 1;"></div>
+        <span style="font-size: 12px; color: var(--text-sub);">已自动填入下方表单，可手动微调核对</span>
+        <div style="height: 1px; background: rgba(255,255,255,0.1); flex: 1;"></div>
       </div>
 
       <el-form label-position="top">
@@ -1270,12 +1358,12 @@
           <el-row :gutter="14">
             <el-col :span="12">
               <el-form-item label="当前剩余百分比 (%)">
-                <el-input-number v-model="editQuota.quota_5h.remaining_pct" :min="0" :max="100" style="width: 100%;"></el-input-number>
+                <el-input-number v-model="editQuota.quota_5h.remaining_pct" :min="0" :max="100" :precision="2" style="width: 100%;"></el-input-number>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="重置时间/描述 (如: 4小时28分)">
-                <el-input v-model="editQuota.quota_5h.reset_time_str" placeholder="例: 4小时28分 或 15:30"></el-input>
+              <el-form-item label="重置时间/描述 (如: 2h 50m 或 4小时28分)">
+                <el-input v-model="editQuota.quota_5h.reset_time_str" placeholder="例: 2h 50m 或 4小时28分"></el-input>
               </el-form-item>
             </el-col>
           </el-row>
@@ -1293,17 +1381,17 @@
         <div style="background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155;">
           <div style="font-weight: 700; color: #a855f7; margin-bottom: 10px; display: flex; justify-content: space-between;">
             <span>📅 自然周配额设置 (Weekly Limit)</span>
-            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">每周一重置</span>
+            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">按周重置</span>
           </div>
           <el-row :gutter="14">
             <el-col :span="12">
               <el-form-item label="当前周剩余百分比 (%)">
-                <el-input-number v-model="editQuota.quota_week.remaining_pct" :min="0" :max="100" style="width: 100%;"></el-input-number>
+                <el-input-number v-model="editQuota.quota_week.remaining_pct" :min="0" :max="100" :precision="2" style="width: 100%;"></el-input-number>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="重置描述/时间 (如: 6天18小时)">
-                <el-input v-model="editQuota.quota_week.reset_time_str" placeholder="例: 6天18小时 或 下周一"></el-input>
+              <el-form-item label="重置描述/时间 (如: 160h 50m 或 6天18小时)">
+                <el-input v-model="editQuota.quota_week.reset_time_str" placeholder="例: 160h 50m 或 6天18小时"></el-input>
               </el-form-item>
             </el-col>
           </el-row>
@@ -1313,7 +1401,7 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="quotaDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveQuotaCalibration">保存并开始倒计时</el-button>
+          <el-button type="primary" @click="saveQuotaCalibration">保存并开始实时倒计时</el-button>
         </span>
       </template>
     </el-dialog>
@@ -1428,16 +1516,168 @@
         });
 
         const quotaDialogVisible = ref(false);
-        const manual5hCountdown = ref(16000);
-        const weeklyResetCountdown = ref(580000);
+        const pastedText = ref('');
+        const smartPasteMsg = ref('');
+        const manual5hCountdown = ref(10200);
+        const manualWeekCountdown = ref(579000);
+
+        // 解析像 "160h 50m", "2h 50m", "6d 16h", "45分" 等格式为秒数
+        const parseDurationToSeconds = (s) => {
+          if (!s || typeof s !== 'string') return 0;
+          let total = 0;
+          const d = s.match(/(\d+)\s*(?:d|day|days|天)/i);
+          if (d) total += parseInt(d[1], 10) * 86400;
+          const h = s.match(/(\d+)\s*(?:h|hour|hours|hr|hrs|小时|时)/i);
+          if (h) total += parseInt(h[1], 10) * 3600;
+          const m = s.match(/(\d+)\s*(?:m|min|mins|minute|minutes|分|分钟)/i);
+          if (m) total += parseInt(m[1], 10) * 60;
+          const sec = s.match(/(\d+)\s*(?:s|sec|secs|second|seconds|秒)/i);
+          if (sec) total += parseInt(sec[1], 10);
+          return total;
+        };
+
+        // 智能解析终端复制的配额信息
+        const parsePastedQuotaText = (raw) => {
+          if (!raw || typeof raw !== 'string') return { quota_5h: null, quota_week: null };
+          const res = { quota_5h: null, quota_week: null };
+
+          // 1. 匹配 5 小时限额块 (如 Five Hour Limit Remaining ... 76.90% ... Refreshes in 2h 50m)
+          const m5h = raw.match(/(?:Five\s*Hour|5\s*Hour|5H|五小时)[\s\S]*?(?:(?=Weekly|周限额|自然周)|$)/i);
+          if (m5h) {
+            const t = m5h[0];
+            const p = t.match(/(\d+(?:\.\d+)?)\s*%/);
+            const r = t.match(/(?:Refreshes\s+in|重置时间|倒计时|剩余时间)[^\n\r\d]*([^\n\r]+)/i);
+            if (p) {
+              const pct = parseFloat(p[1]);
+              const tStr = r ? r[1].trim() : '';
+              const sec = parseDurationToSeconds(tStr);
+              res.quota_5h = {
+                remaining_pct: pct,
+                reset_time_str: tStr,
+                reset_seconds: sec > 0 ? sec : (pct > 0 ? Math.round(5 * 3600 * (pct / 100)) : 0)
+              };
+            }
+          }
+
+          // 2. 匹配自然周限额块 (如 Weekly Limit Remaining ... 83.28% ... Refreshes in 160h 50m)
+          const mWeek = raw.match(/(?:Weekly|周限额|自然周)[\s\S]*?(?:(?=Five\s*Hour|5\s*Hour|5H|五小时)|$)/i);
+          if (mWeek) {
+            const t = mWeek[0];
+            const p = t.match(/(\d+(?:\.\d+)?)\s*%/);
+            const r = t.match(/(?:Refreshes\s+in|重置时间|倒计时|剩余时间)[^\n\r\d]*([^\n\r]+)/i);
+            if (p) {
+              const pct = parseFloat(p[1]);
+              const tStr = r ? r[1].trim() : '';
+              const sec = parseDurationToSeconds(tStr);
+              res.quota_week = {
+                remaining_pct: pct,
+                reset_time_str: tStr,
+                reset_seconds: sec > 0 ? sec : (pct > 0 ? Math.round(7 * 86400 * (pct / 100)) : 0)
+              };
+            }
+          }
+
+          return res;
+        };
+
+        const handleSmartPaste = () => {
+          if (!pastedText.value || !pastedText.value.trim()) {
+            smartPasteMsg.value = '';
+            return;
+          }
+          const parsed = parsePastedQuotaText(pastedText.value);
+          const detected = [];
+          if (parsed.quota_5h) {
+            editQuota.quota_5h.remaining_pct = parsed.quota_5h.remaining_pct;
+            editQuota.quota_5h.reset_time_str = parsed.quota_5h.reset_time_str;
+            editQuota.quota_5h.reset_seconds = parsed.quota_5h.reset_seconds;
+            detected.push(`5小时剩余 ${parsed.quota_5h.remaining_pct}% (${parsed.quota_5h.reset_time_str})`);
+          }
+          if (parsed.quota_week) {
+            editQuota.quota_week.remaining_pct = parsed.quota_week.remaining_pct;
+            editQuota.quota_week.reset_time_str = parsed.quota_week.reset_time_str;
+            editQuota.quota_week.reset_seconds = parsed.quota_week.reset_seconds;
+            detected.push(`周限额剩余 ${parsed.quota_week.remaining_pct}% (${parsed.quota_week.reset_time_str})`);
+          }
+          if (detected.length > 0) {
+            smartPasteMsg.value = `已精准识别：${detected.join(' · ')}`;
+            ElementPlus.ElMessage.success(`已自动填充表单：${detected.join('，')}`);
+          } else {
+            smartPasteMsg.value = '未检测到匹配格式，请确认粘贴内容（支持包含 Weekly Limit Remaining 与 Five Hour Limit Remaining）';
+          }
+        };
+
+        const readFromClipboard = async () => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+              const text = await navigator.clipboard.readText();
+              if (text && text.trim()) {
+                pastedText.value = text;
+                handleSmartPaste();
+                return;
+              }
+            }
+            ElementPlus.ElMessage.info('剪贴板中无内容，请在文本框中直接按 Ctrl+V 粘贴！');
+          } catch (e) {
+            ElementPlus.ElMessage.info('请在文本框中直接按 Ctrl+V 粘贴终端信息！');
+          }
+        };
 
         const openQuotaDialog = () => {
+          pastedText.value = '';
+          smartPasteMsg.value = '';
           editQuota.quota_5h.remaining_pct = customQuota.quota_5h.remaining_pct;
           editQuota.quota_5h.reset_time_str = customQuota.quota_5h.reset_time_str;
           editQuota.quota_5h.reset_seconds = manual5hCountdown.value;
           editQuota.quota_week.remaining_pct = customQuota.quota_week.remaining_pct;
           editQuota.quota_week.reset_time_str = customQuota.quota_week.reset_time_str;
+          editQuota.quota_week.reset_seconds = manualWeekCountdown.value;
           quotaDialogVisible.value = true;
+        };
+
+        // 一键快捷从剪贴板同步配额（秒级直达）
+        const quickPasteFromClipboard = async () => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.readText) {
+              const text = await navigator.clipboard.readText();
+              if (text && text.trim()) {
+                const parsed = parsePastedQuotaText(text);
+                if (parsed.quota_5h || parsed.quota_week) {
+                  const nowTs = Math.floor(Date.now() / 1000);
+                  const detected = [];
+                  if (parsed.quota_5h) {
+                    customQuota.quota_5h.remaining_pct = parsed.quota_5h.remaining_pct;
+                    customQuota.quota_5h.reset_time_str = parsed.quota_5h.reset_time_str;
+                    customQuota.quota_5h.reset_seconds = parsed.quota_5h.reset_seconds;
+                    customQuota.quota_5h.calibrated_at = nowTs;
+                    detected.push(`5H: ${parsed.quota_5h.remaining_pct}% (${parsed.quota_5h.reset_time_str})`);
+                  }
+                  if (parsed.quota_week) {
+                    customQuota.quota_week.remaining_pct = parsed.quota_week.remaining_pct;
+                    customQuota.quota_week.reset_time_str = parsed.quota_week.reset_time_str;
+                    customQuota.quota_week.reset_seconds = parsed.quota_week.reset_seconds;
+                    customQuota.quota_week.calibrated_at = nowTs;
+                    detected.push(`周: ${parsed.quota_week.remaining_pct}% (${parsed.quota_week.reset_time_str})`);
+                  }
+                  recomputeCountdowns();
+                  try {
+                    localStorage.setItem('antigravity_custom_quota', JSON.stringify(customQuota));
+                  } catch (e) {}
+                  try {
+                    await fetch('/api/quota-config', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(customQuota)
+                    });
+                  } catch (e) {}
+                  ElementPlus.ElMessage.success(`🎉 成功从剪贴板一键同步配额！${detected.join(' | ')}`);
+                  return;
+                }
+              }
+            }
+          } catch (e) {}
+          // 如果剪贴板无法直接读取，打开弹窗供用户粘贴
+          openQuotaDialog();
         };
 
         const set5hCountdown = (hours) => {
@@ -1445,17 +1685,45 @@
           editQuota.quota_5h.reset_time_str = `${hours}小时00分`;
         };
 
+        // 重新基于校准时间和当前时间推导剩余倒计时秒数
+        const recomputeCountdowns = () => {
+          const nowTs = Math.floor(Date.now() / 1000);
+
+          // 5小时倒计时
+          if (customQuota.quota_5h && customQuota.quota_5h.reset_seconds > 0) {
+            const calibAt = customQuota.quota_5h.calibrated_at || nowTs;
+            const elapsed = Math.max(0, nowTs - calibAt);
+            manual5hCountdown.value = Math.max(0, customQuota.quota_5h.reset_seconds - elapsed);
+          } else {
+            manual5hCountdown.value = 0;
+          }
+
+          // 自然周倒计时
+          if (customQuota.quota_week && customQuota.quota_week.reset_seconds > 0) {
+            const calibAt = customQuota.quota_week.calibrated_at || nowTs;
+            const elapsed = Math.max(0, nowTs - calibAt);
+            manualWeekCountdown.value = Math.max(0, customQuota.quota_week.reset_seconds - elapsed);
+          } else if (quotas.quota_week.weekly_reset_seconds > 0) {
+            manualWeekCountdown.value = quotas.quota_week.weekly_reset_seconds;
+          } else {
+            manualWeekCountdown.value = 0;
+          }
+        };
+
         const saveQuotaCalibration = async () => {
+          const nowTs = Math.floor(Date.now() / 1000);
+
           customQuota.quota_5h.remaining_pct = editQuota.quota_5h.remaining_pct;
           customQuota.quota_5h.reset_time_str = editQuota.quota_5h.reset_time_str;
           customQuota.quota_5h.reset_seconds = editQuota.quota_5h.reset_seconds;
-          customQuota.quota_5h.calibrated_at = Math.floor(Date.now() / 1000);
+          customQuota.quota_5h.calibrated_at = nowTs;
 
           customQuota.quota_week.remaining_pct = editQuota.quota_week.remaining_pct;
           customQuota.quota_week.reset_time_str = editQuota.quota_week.reset_time_str;
-          customQuota.quota_week.calibrated_at = Math.floor(Date.now() / 1000);
+          customQuota.quota_week.reset_seconds = editQuota.quota_week.reset_seconds;
+          customQuota.quota_week.calibrated_at = nowTs;
 
-          manual5hCountdown.value = editQuota.quota_5h.reset_seconds || 0;
+          recomputeCountdowns();
 
           // 本地 localStorage 存储
           try {
@@ -1472,7 +1740,7 @@
           } catch (e) {}
 
           quotaDialogVisible.value = false;
-          ElementPlus.ElMessage.success('配额与倒计时校准成功！');
+          ElementPlus.ElMessage.success('配额已校准，秒级实时倒计时已启动！');
         };
 
         // 动态计算当前区间的费用预估与 Prompt Caching 节省数额（带前端兜底计算，彻底杜绝 0$）
@@ -1658,16 +1926,30 @@
           return num;
         };
 
-        // 倒计时格式化
-        const formatCountdown = (totalSec) => {
-          if (!totalSec || totalSec <= 0) return '即将释放';
-          const m = Math.floor(totalSec / 60);
-          const s = totalSec % 60;
-          if (m >= 60) {
-            const h = Math.floor(m / 60);
-            return `${h}小时${m % 60}分`;
+        // 实时秒级递减倒计时格式化函数（精确展示天、时、分、秒，视觉上秒秒在跳动！）
+        const formatCountdownLive = (totalSec) => {
+          if (totalSec === undefined || totalSec === null || isNaN(totalSec) || totalSec <= 0) {
+            return '00:00:00 (即将重置)';
           }
-          return `${m}分${s}秒`;
+          const s = Math.floor(totalSec % 60);
+          const totalMin = Math.floor(totalSec / 60);
+          const m = totalMin % 60;
+          const totalHours = Math.floor(totalMin / 60);
+          const pad = (n) => String(n).padStart(2, '0');
+
+          if (totalHours >= 24) {
+            const days = Math.floor(totalHours / 24);
+            const h = totalHours % 24;
+            return `${days}天 ${pad(h)}时${pad(m)}分${pad(s)}秒 (${totalHours}h ${pad(m)}m ${pad(s)}s)`;
+          } else if (totalHours > 0) {
+            return `${pad(totalHours)}小时${pad(m)}分${pad(s)}秒`;
+          } else {
+            return `${pad(m)}分${pad(s)}秒`;
+          }
+        };
+
+        const formatCountdown = (totalSec) => {
+          return formatCountdownLive(totalSec);
         };
 
         // 获取概览数据（指标 + 折线走势 + 模型分布 + 本地配额）
@@ -1699,9 +1981,7 @@
                 } catch(e) {
                   Object.assign(customQuota, data.custom_quota);
                 }
-                const nowTs = Math.floor(Date.now() / 1000);
-                const passed = Math.max(0, nowTs - (customQuota.quota_5h.calibrated_at || nowTs));
-                manual5hCountdown.value = Math.max(0, (customQuota.quota_5h.reset_seconds || 16000) - passed);
+                recomputeCountdowns();
               }
               if (data.official_quotas && data.official_quotas.success && (!officialData.groups || officialData.groups.length === 0)) {
                 officialData.fetched_at = data.official_quotas.fetched_at;
@@ -2010,10 +2290,11 @@
           // 初次加载异步获取官方云端配额
           fetchOfficialUsage(false);
 
-          // 启动每秒倒计时递减器
+          // 启动每秒倒计时递减器（秒级实时动态递减，保证界面秒秒在跳动！）
           countdownTimer = setInterval(() => {
-            if (reliefCountdown.value > 0) reliefCountdown.value--;
             if (manual5hCountdown.value > 0) manual5hCountdown.value--;
+            if (manualWeekCountdown.value > 0) manualWeekCountdown.value--;
+            if (reliefCountdown.value > 0) reliefCountdown.value--;
             if (weeklyResetCountdown.value > 0) weeklyResetCountdown.value--;
           }, 1000);
         });
@@ -2041,10 +2322,16 @@
           quotas,
           reliefCountdown,
           manual5hCountdown,
+          manualWeekCountdown,
           weeklyResetCountdown,
           customQuota,
           editQuota,
           quotaDialogVisible,
+          pastedText,
+          smartPasteMsg,
+          handleSmartPaste,
+          readFromClipboard,
+          quickPasteFromClipboard,
           openQuotaDialog,
           set5hCountdown,
           saveQuotaCalibration,
@@ -2062,6 +2349,7 @@
           modelChartCollapsed,
           toggleModelChart,
           formatCountdown,
+          formatCountdownLive,
           fetchData,
           fetchSessions,
           onRangeChange,

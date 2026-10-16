@@ -116,7 +116,13 @@ def get_quota_config():
 def save_quota_config(cfg: dict = Body(...)):
     """保存用户手动设置的配额配置"""
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    cfg["calibrated_at"] = int(time.time())
+    now_ts = int(time.time())
+    if "calibrated_at" not in cfg:
+        cfg["calibrated_at"] = now_ts
+    if "quota_5h" in cfg and isinstance(cfg["quota_5h"], dict):
+        cfg["quota_5h"].setdefault("calibrated_at", now_ts)
+    if "quota_week" in cfg and isinstance(cfg["quota_week"], dict):
+        cfg["quota_week"].setdefault("calibrated_at", now_ts)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return {"success": True, "data": cfg}
