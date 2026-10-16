@@ -1,0 +1,2083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity Token 消耗统计看板</title>
+  <!-- Element Plus CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+  <!-- Vue 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Element Plus JS -->
+  <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.js"></script>
+  <!-- Element Plus Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+  <!-- ECharts -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+  <style>
+    :root {
+      --bg-color: #0b1120;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #a855f7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* 顶部导航条 */
+    .header {
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 20px;
+      color: white;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* 主内容区 */
+    .main-container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 20px 24px 60px 24px;
+    }
+
+    /* 5H 与周配额双核心大屏卡片 */
+    .quota-monitor-section {
+      background: linear-gradient(145deg, #162032, #0f172a);
+      border: 1px solid #3b82f6;
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 22px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+      position: relative;
+    }
+
+    .quota-monitor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 12px;
+    }
+
+    .quota-monitor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    @media (max-width: 960px) {
+      .quota-monitor-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .quota-card {
+      background: #1e293b;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .quota-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .quota-card-val-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .quota-card-pct {
+      font-size: 26px;
+      font-weight: 800;
+      font-feature-settings: "tnum";
+    }
+
+    .quota-info-tag {
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
+    .quota-status-rows {
+      margin-top: 14px;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 8px;
+      padding: 12px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .quota-status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* 筛选条 */
+    .filter-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .filter-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-sub);
+    }
+
+    /* 费用估计面板 (默认折叠) */
+    .cost-estimation-section {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-bottom: 22px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+      transition: all 0.25s ease;
+    }
+
+    .cost-estimation-section.is-collapsed {
+      padding: 12px 20px;
+    }
+
+    .cost-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .cost-estimation-section:not(.is-collapsed) .cost-header {
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 12px;
+    }
+
+    .cost-collapsed-preview {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 12px;
+      padding: 2px 10px;
+      border-radius: 6px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      font-size: 13px;
+      color: #cbd5e1;
+      font-weight: normal;
+    }
+
+    .cost-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cost-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .cost-subcard {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+
+    .cost-subcard-title {
+      font-size: 12px;
+      color: var(--text-sub);
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .cost-subcard-val {
+      font-size: 24px;
+      font-weight: 800;
+      color: #fff;
+      font-feature-settings: "tnum";
+    }
+
+    .cost-savings-banner {
+      margin-top: 14px;
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(6, 182, 212, 0.12));
+      border: 1px dashed rgba(16, 185, 129, 0.4);
+      border-radius: 8px;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    /* 核心指标卡片 */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    .metric-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--card-accent, #6366f1);
+    }
+
+    .metric-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .metric-title {
+      font-size: 13px;
+      color: var(--text-sub);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .metric-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-sub);
+    }
+
+    .metric-value {
+      font-size: 25px;
+      font-weight: 800;
+      color: #fff;
+      font-feature-settings: "tnum";
+      line-height: 1.2;
+      margin-bottom: 6px;
+      word-break: break-all;
+    }
+
+    .metric-desc {
+      font-size: 12px;
+      color: var(--text-sub);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 图表区 */
+    .trend-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .model-distribution-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      transition: all 0.25s ease;
+    }
+
+    .model-distribution-section.is-collapsed {
+      padding: 12px 20px;
+    }
+
+    .model-distribution-section:not(.is-collapsed) .chart-header {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .model-collapsed-tags {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .trend-card .chart-header {
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 12px;
+    }
+
+    .chart-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 380px;
+    }
+
+    /* 表格卡片 */
+    .table-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .table-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* Element Plus 深色覆盖适配 */
+    .el-radio-button__inner {
+      background-color: #0f172a !important;
+      color: #94a3b8 !important;
+      border-color: #334155 !important;
+    }
+    .el-radio-button__original-radio:checked + .el-radio-button__inner {
+      background-color: #6366f1 !important;
+      color: #fff !important;
+      border-color: #6366f1 !important;
+      box-shadow: -1px 0 0 0 #6366f1 !important;
+    }
+    .el-table {
+      background-color: transparent !important;
+      color: #e2e8f0 !important;
+      --el-table-border-color: #334155;
+      --el-table-header-bg-color: #0f172a;
+      --el-table-tr-bg-color: #1e293b;
+      --el-table-row-hover-bg-color: #273549;
+    }
+    .el-table th.el-table__cell {
+      background-color: #0f172a !important;
+      color: #94a3b8 !important;
+      font-weight: 600;
+    }
+    .el-pagination {
+      justify-content: flex-end;
+      margin-top: 18px;
+      --el-pagination-bg-color: #0f172a;
+      --el-pagination-text-color: #94a3b8;
+      --el-pagination-button-bg-color: #0f172a;
+      --el-pagination-hover-color: #6366f1;
+    }
+    .el-drawer {
+      background-color: #1e293b !important;
+      color: #f8fafc !important;
+    }
+    .el-drawer__header {
+      color: #fff !important;
+      border-bottom: 1px solid #334155;
+      margin-bottom: 0;
+      padding: 16px 20px;
+    }
+    .el-input__wrapper {
+      background-color: #0f172a !important;
+      box-shadow: 0 0 0 1px #334155 inset !important;
+    }
+    .el-input__inner {
+      color: #fff !important;
+    }
+
+    .turn-item {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+    .turn-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .turn-chips {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+    .turn-chip strong {
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航 -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">⚡</div>
+        <div>
+          <div class="brand-title">
+            Antigravity Token 消耗统计看板
+            <el-tag size="small" type="primary" effect="dark" round>Desktop Live</el-tag>
+          </div>
+          <div style="font-size: 12px; color: var(--text-sub);">
+            5H滑动释放监控 + 自然周配额 + 真实 Token 深度解析与费用预估
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- 手动校准/填报配额按钮 -->
+        <el-button type="warning" :icon="icons.Edit" @click="openQuotaDialog">
+          ✏️ 手动校准/填报配额
+        </el-button>
+
+        <!-- 自动刷新控制 -->
+        <span style="font-size: 13px; color: var(--text-sub);">本地自动刷新:</span>
+        <el-select v-model="autoRefreshSec" size="default" style="width: 110px;" @change="setupAutoRefresh">
+          <el-option label="关闭" :value="0"></el-option>
+          <el-option label="10 秒" :value="10"></el-option>
+          <el-option label="30 秒" :value="30"></el-option>
+          <el-option label="1 分钟" :value="60"></el-option>
+          <el-option label="5 分钟" :value="300"></el-option>
+        </el-select>
+
+        <!-- 手动刷新按钮 -->
+        <el-button type="primary" :icon="icons.Refresh" :loading="refreshing" @click="manualRefresh">
+          {{ refreshing ? '正在重扫 DB...' : '手动重扫本地' }}
+        </el-button>
+
+        <!-- 导出 CSV -->
+        <el-button type="success" plain :icon="icons.Download" @click="exportCsv">
+          导出报表
+        </el-button>
+      </div>
+    </header>
+
+    <div class="main-container">
+
+      <!-- 🔍 第 1 项：时间筛选栏 -->
+      <div class="filter-bar">
+        <div class="filter-left">
+          <span class="filter-label">时间范围:</span>
+          <el-radio-group v-model="timeRange" size="default" @change="onRangeChange">
+            <el-radio-button label="today">今日</el-radio-button>
+            <el-radio-button label="yesterday">昨日</el-radio-button>
+            <el-radio-button label="week">本周 (近7天)</el-radio-button>
+            <el-radio-button label="month">本月 (近30天)</el-radio-button>
+            <el-radio-button label="all">历史总计</el-radio-button>
+            <el-radio-button label="custom">自定义日期</el-radio-button>
+          </el-radio-group>
+
+          <!-- 自定义日期选择器 -->
+          <el-date-picker
+            v-if="timeRange === 'custom'"
+            v-model="customDates"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            value-format="YYYY-MM-DD"
+            size="default"
+            @change="fetchData"
+            style="width: 250px;"
+          ></el-date-picker>
+        </div>
+
+        <div style="font-size: 13px; color: var(--text-sub); display: flex; gap: 16px; align-items: center;">
+          <span>已扫描 DB: <strong style="color: #fff;">{{ meta.total_dbs || 0 }}</strong> 个</span>
+          <span>筛选匹配轮次: <strong style="color: #6366f1;">{{ meta.matched_turns || 0 }}</strong> 次</span>
+          <span>最后更新: <strong style="color: #fff;">{{ meta.last_scan_time || '尚未扫描' }}</strong></span>
+        </div>
+      </div>
+
+      <!-- 📊 第 2 项：总计数核心指标网格 (大字 M/B 进位计数，小字精确详细 Token) -->
+      <div class="metrics-grid">
+        <!-- 累计总 Token -->
+        <div class="metric-card" style="--card-accent: #6366f1;">
+          <div class="metric-header">
+            <span class="metric-title">累计总 Token 吞吐</span>
+            <span class="metric-badge">All-in</span>
+          </div>
+          <div class="metric-value">{{ formatTokenMB(summary.total_tokens) }}</div>
+          <div class="metric-desc">
+            <span>{{ formatNum(summary.total_tokens) }} Tokens</span>
+            <span style="margin-left: auto; color: #a855f7;">平均 {{ formatNum(summary.avg_tokens_per_turn) }}/轮</span>
+          </div>
+        </div>
+
+        <!-- 生成速率 TPS -->
+        <div class="metric-card" style="--card-accent: #14b8a6;">
+          <div class="metric-header">
+            <span class="metric-title">平均输出生成速率</span>
+            <span class="metric-badge" style="background: rgba(20, 184, 166, 0.15); color: #2dd4bf;">Tokens/s</span>
+          </div>
+          <div class="metric-value" style="color: #2dd4bf;">{{ summary.avg_speed_tps }} <span style="font-size: 14px; font-weight: normal; color: var(--text-sub);">tok/s</span></div>
+          <div class="metric-desc">
+            <span>单轮平均耗时: <strong style="color: #fff;">{{ summary.avg_duration_sec }}s</strong></span>
+          </div>
+        </div>
+
+        <!-- 缓存命中率 -->
+        <div class="metric-card" style="--card-accent: #10b981;">
+          <div class="metric-header">
+            <span class="metric-title">Prompt 缓存命中率</span>
+            <span class="metric-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">大幅节省</span>
+          </div>
+          <div class="metric-value" style="color: #10b981;">{{ summary.cache_hit_rate }}%</div>
+          <el-progress :percentage="Math.min(100, Math.max(0, summary.cache_hit_rate))" :stroke-width="6" :show-text="false" status="success"></el-progress>
+          <div class="metric-desc" style="margin-top: 6px;">
+            <span>缓存读取 / 总提示词输入</span>
+          </div>
+        </div>
+
+        <!-- 未缓存新增输入 -->
+        <div class="metric-card" style="--card-accent: #06b6d4;">
+          <div class="metric-header">
+            <span class="metric-title">未缓存新增输入</span>
+            <span class="metric-badge">Uncached</span>
+          </div>
+          <div class="metric-value" style="color: #38bdf8;">{{ formatTokenMB(summary.input_tokens) }}</div>
+          <div class="metric-desc">
+            <span>{{ formatNum(summary.input_tokens) }} Tokens</span>
+          </div>
+        </div>
+
+        <!-- 缓存读取 Token -->
+        <div class="metric-card" style="--card-accent: #3b82f6;">
+          <div class="metric-header">
+            <span class="metric-title">缓存读取 Token</span>
+            <span class="metric-badge">Cache Read</span>
+          </div>
+          <div class="metric-value" style="color: #60a5fa;">{{ formatTokenMB(summary.cache_read_tokens) }}</div>
+          <div class="metric-desc">
+            <span>{{ formatNum(summary.cache_read_tokens) }} Tokens</span>
+          </div>
+        </div>
+
+        <!-- 深度思考 Reasoning -->
+        <div class="metric-card" style="--card-accent: #a855f7;">
+          <div class="metric-header">
+            <span class="metric-title">思考推理 Token</span>
+            <span class="metric-badge">Thinking</span>
+          </div>
+          <div class="metric-value" style="color: #c084fc;">{{ formatTokenMB(summary.thinking_tokens) }}</div>
+          <div class="metric-desc">
+            <span>{{ formatNum(summary.thinking_tokens) }} Tokens</span>
+          </div>
+        </div>
+
+        <!-- 正文输出 Response -->
+        <div class="metric-card" style="--card-accent: #f59e0b;">
+          <div class="metric-header">
+            <span class="metric-title">回复正文 Token</span>
+            <span class="metric-badge">Response</span>
+          </div>
+          <div class="metric-value" style="color: #fbbf24;">{{ formatTokenMB(summary.response_tokens) }}</div>
+          <div class="metric-desc">
+            <span>{{ formatNum(summary.response_tokens) }} Tokens</span>
+          </div>
+        </div>
+
+        <!-- 会话与轮次 -->
+        <div class="metric-card" style="--card-accent: #ec4899;">
+          <div class="metric-header">
+            <span class="metric-title">活跃会话 / 轮次</span>
+            <span class="metric-badge">Sessions</span>
+          </div>
+          <div class="metric-value">{{ formatNum(summary.sessions_count) }} <span style="font-size: 15px; font-weight: normal; color: var(--text-sub);">会话</span></div>
+          <div class="metric-desc">
+            <span>共触发 <strong style="color: #fff;">{{ formatNum(summary.turns_count) }}</strong> 轮调用</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 💰 第 3 项：费用估计面板（折叠，默认收起不展开） -->
+      <div class="cost-estimation-section" :class="{ 'is-collapsed': costSectionCollapsed }">
+        <div class="cost-header" style="cursor: pointer;" @click="costSectionCollapsed = !costSectionCollapsed">
+          <div class="cost-title">
+            <span style="font-size: 18px;">💰</span>
+            <span>API 消耗费用预估与 Prompt Caching 节省分析</span>
+            <!-- 折叠时显示的精炼预览 -->
+            <span v-if="costSectionCollapsed" class="cost-collapsed-preview">
+              预估: <strong style="color: #fbbf24; margin-left: 4px;">{{ currentCost.symbol }} {{ currentCost.total }}</strong>
+              <span style="color: rgba(255,255,255,0.25); margin: 0 8px;">|</span>
+              缓存已省: <strong style="color: #34d399; margin-left: 4px;">{{ currentCost.symbol }} {{ currentCost.saved }}</strong>
+              <span style="color: #38bdf8; margin-left: 6px; font-size: 11px;">(-{{ currentCost.savedPercent }}%)</span>
+            </span>
+            <el-popover placement="bottom-start" :width="480" trigger="hover" v-if="!costSectionCollapsed">
+              <template #reference>
+                <el-button link type="primary" size="small" style="margin-left: 8px;" @click.stop>
+                  <el-icon><component :is="icons.QuestionFilled" /></el-icon> 计费标准对照表
+                </el-button>
+              </template>
+              <div style="font-size: 13px; line-height: 1.6; color: #cbd5e1;">
+                <div style="font-weight: 700; margin-bottom: 8px; color: #fff;">📊 百万 Token (1M Tokens) 计费规则对照</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid #475569; color: #94a3b8;">
+                      <th style="padding: 4px 6px;">计费项目</th>
+                      <th style="padding: 4px 6px; color: #38bdf8;">促销期 (2026年底前)</th>
+                      <th style="padding: 4px 6px; color: #fbbf24;">标准期 (2027年起)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style="border-bottom: 1px solid #334155;">
+                      <td style="padding: 4px 6px;">标准未缓存输入</td>
+                      <td style="padding: 4px 6px;">$0.75 / 1M</td>
+                      <td style="padding: 4px 6px;">$1.50 / 1M</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #334155;">
+                      <td style="padding: 4px 6px;">缓存命中输入</td>
+                      <td style="padding: 4px 6px; color: #34d399;">$0.0375 / 1M (-95%)</td>
+                      <td style="padding: 4px 6px; color: #34d399;">$0.075 / 1M (-95%)</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #334155;">
+                      <td style="padding: 4px 6px;">缓存存储 (Storage)</td>
+                      <td style="padding: 4px 6px;">$0.50 / 小时</td>
+                      <td style="padding: 4px 6px;">$1.00 / 小时</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 4px 6px;">输出 / 思考 Token</td>
+                      <td style="padding: 4px 6px;">$3.75 / 1M</td>
+                      <td style="padding: 4px 6px;">$7.50 / 1M</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">注：参考汇率 USD/CNY ≈ 7.23。费用为模型商业 API 官方等价估算值，订阅包月用户无需额外按量付费。</div>
+              </div>
+            </el-popover>
+          </div>
+
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;" @click.stop>
+            <!-- 计费阶段切换 (展开时显示) -->
+            <div v-show="!costSectionCollapsed" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <el-radio-group v-model="pricingTier" size="small">
+                <el-radio-button label="promo">🎉 促销期 (2026年底前)</el-radio-button>
+                <el-radio-button label="standard">💼 标准期 (2027年起)</el-radio-button>
+              </el-radio-group>
+
+              <!-- 币种切换 -->
+              <el-radio-group v-model="currency" size="small">
+                <el-radio-button label="USD">美元 ($)</el-radio-button>
+                <el-radio-button label="CNY">人民币 (¥)</el-radio-button>
+              </el-radio-group>
+            </div>
+
+            <!-- 折叠/展开按钮 -->
+            <el-button
+              type="warning"
+              plain
+              size="small"
+              @click="costSectionCollapsed = !costSectionCollapsed"
+            >
+              {{ costSectionCollapsed ? '展开费用明细 ▼' : '收起费用明细 ▲' }}
+            </el-button>
+          </div>
+        </div>
+
+        <!-- 展开内容区 -->
+        <div v-show="!costSectionCollapsed">
+          <div class="cost-grid">
+            <!-- 预估总费用 -->
+            <div class="cost-subcard" style="border-left: 3px solid #f59e0b;">
+              <div class="cost-subcard-title">
+                <span>当前区间预估总费用</span>
+                <el-tag size="small" type="warning" effect="plain">{{ pricingTier === 'promo' ? '优惠价' : '标准价' }}</el-tag>
+              </div>
+              <div class="cost-subcard-val" style="color: #fbbf24;">
+                {{ currentCost.symbol }} {{ currentCost.total }}
+              </div>
+              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
+                {{ currency === 'USD' ? '≈ ¥' + (Number(currentCost.total) * 7.23).toFixed(2) : '≈ $' + (Number(currentCost.total) / 7.23).toFixed(4) }}
+              </div>
+            </div>
+
+            <!-- 未缓存输入费用 -->
+            <div class="cost-subcard" style="border-left: 3px solid #06b6d4;">
+              <div class="cost-subcard-title">
+                <span>未缓存新增输入</span>
+                <span>{{ pricingTier === 'promo' ? '$0.75/1M' : '$1.50/1M' }}</span>
+              </div>
+              <div class="cost-subcard-val" style="color: #38bdf8;">
+                {{ currentCost.symbol }} {{ currentCost.input }}
+              </div>
+              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
+                {{ formatTokenMB(summary.input_tokens) }} ({{ formatNum(summary.input_tokens) }} Tokens)
+              </div>
+            </div>
+
+            <!-- 缓存读取费用 -->
+            <div class="cost-subcard" style="border-left: 3px solid #10b981;">
+              <div class="cost-subcard-title">
+                <span>Prompt 缓存命中费</span>
+                <span style="color: #34d399;">仅原价 5%</span>
+              </div>
+              <div class="cost-subcard-val" style="color: #34d399;">
+                {{ currentCost.symbol }} {{ currentCost.cache }}
+              </div>
+              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
+                {{ formatTokenMB(summary.cache_read_tokens) }} ({{ formatNum(summary.cache_read_tokens) }} Tokens)
+              </div>
+            </div>
+
+            <!-- 输出与思考费用 -->
+            <div class="cost-subcard" style="border-left: 3px solid #a855f7;">
+              <div class="cost-subcard-title">
+                <span>输出与思考推理费</span>
+                <span>{{ pricingTier === 'promo' ? '$3.75/1M' : '$7.50/1M' }}</span>
+              </div>
+              <div class="cost-subcard-val" style="color: #c084fc;">
+                {{ currentCost.symbol }} {{ currentCost.output }}
+              </div>
+              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
+                {{ formatTokenMB(summary.total_output_tokens) }} ({{ formatNum(summary.total_output_tokens) }} Tokens)
+              </div>
+            </div>
+          </div>
+
+          <!-- 缓存节省横幅 -->
+          <div class="cost-savings-banner">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 18px;">💡</span>
+              <span>
+                <strong>Prompt 缓存节省效益：</strong>
+                通过上下文 Prompt Caching 自动命中，本次筛选范围已为您节省约
+                <strong style="color: #34d399; font-size: 15px;">{{ currentCost.symbol }} {{ currentCost.saved }}</strong>
+                (输入端平均节省 <strong style="color: #38bdf8;">{{ summary.cache_hit_rate }}%</strong>)！
+              </span>
+            </div>
+            <el-tag size="small" type="success" effect="dark">
+              🚀 成本缩减 {{ currentCost.savedPercent }}%
+            </el-tag>
+          </div>
+        </div>
+      </div>
+
+      <!-- 🛡️ 第 4 项：5小时滑动释放 & 自然周限额双核心监控大屏 -->
+      <div class="quota-monitor-section">
+        <div class="quota-monitor-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 18px; font-weight: 800; color: #fff;">🛡️ 5小时滑动释放 & 自然周限额监控中心</span>
+            <el-tag size="small" type="success" effect="dark">本地 SQLite 离线秒级响应</el-tag>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 12px; color: #94a3b8;">
+              上次本地扫描: <strong style="color: #60a5fa;">{{ meta.last_scan_time || '刚刚' }}</strong>
+            </span>
+            <el-button size="small" type="warning" plain :icon="icons.Edit" @click="openQuotaDialog">
+              ✏️ 校准/填报当前配额
+            </el-button>
+          </div>
+        </div>
+
+        <div class="quota-monitor-grid">
+          <!-- 5小时滑动窗口卡片 -->
+          <div class="quota-card" style="border-top: 3px solid #38bdf8;">
+            <div>
+              <div class="quota-card-title">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span>⏱️ 5小时滑动窗口 (5H Rolling Window)</span>
+                  <el-tag size="small" type="info" effect="plain">{{ quotas.quota_5h.window_start }} ~ {{ quotas.quota_5h.window_end }}</el-tag>
+                </div>
+                <el-button link type="primary" size="small" @click="openQuotaDialog">修改</el-button>
+              </div>
+
+              <div class="quota-card-val-row">
+                <span class="quota-info-tag">当前5H剩余额度 (校准):</span>
+                <span class="quota-card-pct" :style="{ color: getRemainingColor(customQuota.quota_5h.remaining_pct) }">
+                  剩余 {{ customQuota.quota_5h.remaining_pct }}%
+                </span>
+              </div>
+
+              <!-- 进度条 -->
+              <el-progress
+                :percentage="Number(customQuota.quota_5h.remaining_pct)"
+                :stroke-width="10"
+                :color="getRemainingColor(customQuota.quota_5h.remaining_pct)"
+                :show-text="false"
+              ></el-progress>
+            </div>
+
+            <div class="quota-status-rows">
+              <div class="quota-status-row">
+                <span style="color: #cbd5e1;">📊 过去 5H 真实消耗：</span>
+                <span style="color: #38bdf8; font-weight: 700;">{{ formatTokenMB(quotas.quota_5h.used_tokens) }} ({{ formatNum(quotas.quota_5h.used_tokens) }} Tokens · {{ quotas.quota_5h.calls }} 轮调用)</span>
+              </div>
+              <div class="quota-status-row" v-if="quotas.quota_5h.next_relief_seconds > 0">
+                <span style="color: #fbbf24;">⏳ 下批额度释放倒计时：</span>
+                <span style="color: #fbbf24; font-weight: 700; font-family: monospace;">
+                  {{ formatCountdown(reliefCountdown) }} (预计释放 ≈ {{ formatTokenMB(quotas.quota_5h.next_relief_tokens) }})
+                </span>
+              </div>
+              <div class="quota-status-row" v-else>
+                <span style="color: #94a3b8;">⏳ 下批额度释放：</span>
+                <span style="color: #34d399;">暂无积压消耗（额度充裕）</span>
+              </div>
+              <div class="quota-status-row">
+                <span style="color: #c084fc;">🎯 5H重置时间 / 倒计时：</span>
+                <span style="color: #c084fc; font-weight: 700; font-family: monospace;">
+                  {{ customQuota.quota_5h.reset_time_str ? customQuota.quota_5h.reset_time_str + ' · ' : '' }}倒计时 {{ formatCountdown(manual5hCountdown) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 自然周限额卡片 -->
+          <div class="quota-card" style="border-top: 3px solid #a855f7;">
+            <div>
+              <div class="quota-card-title">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span>📅 自然周限额 (Weekly Limit)</span>
+                  <el-tag size="small" type="info" effect="plain">{{ quotas.quota_week.monday_date }} 至今</el-tag>
+                </div>
+                <el-button link type="primary" size="small" @click="openQuotaDialog">修改</el-button>
+              </div>
+
+              <div class="quota-card-val-row">
+                <span class="quota-info-tag">当前周剩余额度 (校准):</span>
+                <span class="quota-card-pct" :style="{ color: getRemainingColor(customQuota.quota_week.remaining_pct) }">
+                  剩余 {{ customQuota.quota_week.remaining_pct }}%
+                </span>
+              </div>
+
+              <!-- 进度条 -->
+              <el-progress
+                :percentage="Number(customQuota.quota_week.remaining_pct)"
+                :stroke-width="10"
+                :color="getRemainingColor(customQuota.quota_week.remaining_pct)"
+                :show-text="false"
+              ></el-progress>
+            </div>
+
+            <div class="quota-status-rows">
+              <div class="quota-status-row">
+                <span style="color: #cbd5e1;">📊 本周累计真实消耗：</span>
+                <span style="color: #a855f7; font-weight: 700;">{{ formatTokenMB(quotas.quota_week.used_tokens) }} ({{ formatNum(quotas.quota_week.used_tokens) }} Tokens · {{ quotas.quota_week.calls }} 轮调用)</span>
+              </div>
+              <div class="quota-status-row">
+                <span style="color: #f59e0b;">🔥 过去 7 天日均消耗：</span>
+                <span style="color: #fbbf24; font-weight: 700;">{{ formatTokenMB(quotas.quota_week.daily_burn_rate) }}/天</span>
+              </div>
+              <div class="quota-status-row">
+                <span style="color: #38bdf8;">🔄 自然周重置倒计时：</span>
+                <span style="color: #38bdf8; font-weight: 700; font-family: monospace;">
+                  {{ formatCountdown(weeklyResetCountdown) }} ({{ quotas.quota_week.next_reset_date }})
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 📈 第 5 项：图表区 (走势图全宽 + 默认折叠模型消耗分布占比) -->
+      <div class="trend-card">
+        <div class="chart-header">
+          <div class="chart-title">
+            <span>📈</span>
+            <span>Token 消耗走势图</span>
+            <el-tag size="small" type="info">{{ timeRange === 'today' || timeRange === 'yesterday' ? '按小时聚合' : '按天聚合' }}</el-tag>
+          </div>
+          <div style="font-size: 12px; color: var(--text-sub);">
+            支持滚轮缩放与图例筛选
+          </div>
+        </div>
+        <div ref="trendChartRef" class="chart-container" style="height: 340px;"></div>
+      </div>
+
+      <!-- 模型消耗分布占比（折叠，默认收起不展开） -->
+      <div class="model-distribution-section" :class="{ 'is-collapsed': modelChartCollapsed }">
+        <div class="chart-header" style="cursor: pointer;" @click="toggleModelChart">
+          <div class="chart-title">
+            <span>🧠</span>
+            <span>模型消耗分布占比</span>
+            <el-tag size="small" type="success">{{ models.length }} 款模型</el-tag>
+            <!-- 折叠时显示的简要模型标签预览 -->
+            <div v-if="modelChartCollapsed" class="model-collapsed-tags">
+              <el-tag
+                v-for="m in models.slice(0, 3)"
+                :key="m.model"
+                size="small"
+                type="info"
+                effect="plain"
+              >
+                {{ m.model }}: {{ formatTokenMB(m.total_tokens) }}
+              </el-tag>
+              <span v-if="models.length > 3" style="font-size: 11px; color: var(--text-sub); margin-left: 2px;">+{{ models.length - 3 }} 款</span>
+            </div>
+          </div>
+          <el-button
+            type="primary"
+            plain
+            size="small"
+            @click.stop="toggleModelChart"
+          >
+            {{ modelChartCollapsed ? '展开模型分布饼图 ▼' : '收起模型分布 ▲' }}
+          </el-button>
+        </div>
+
+        <div v-show="!modelChartCollapsed" style="margin-top: 16px;">
+          <div ref="modelChartRef" class="chart-container" style="height: 340px;"></div>
+        </div>
+      </div>
+
+      <!-- 会话与轮次明细表格 -->
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 16px; font-weight: 700; color: #fff;">📋 会话明细列表</span>
+            <el-tag size="small" type="primary">{{ sessionTable.total }} 个会话</el-tag>
+          </div>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <el-input
+              v-model="searchQuery"
+              placeholder="搜索会话标题、ID或模型..."
+              :prefix-icon="icons.Search"
+              clearable
+              size="default"
+              style="width: 280px;"
+              @input="onSearchInput"
+            ></el-input>
+          </div>
+        </div>
+
+        <!-- 表格 -->
+        <el-table :data="sessionTable.items" style="width: 100%" v-loading="tableLoading">
+          <el-table-column prop="title" label="会话主题 / 任务" min-width="220">
+            <template #default="{ row }">
+              <div style="font-weight: 600; color: #fff; margin-bottom: 2px;">{{ row.title }}</div>
+              <div style="font-size: 11px; color: var(--text-sub); font-family: monospace;">
+                ID: {{ row.session_id.substring(0, 16) }}...
+                <el-tag size="small" type="info" effect="plain" style="margin-left: 6px;">{{ row.source_app }}</el-tag>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="使用模型" min-width="170">
+            <template #default="{ row }">
+              <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <el-tag v-for="m in row.models" :key="m" size="small" type="warning" effect="dark">
+                  {{ m }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="calls" label="轮次" width="85" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" type="primary" round>{{ row.calls }} 轮</el-tag>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="平均速率" width="120" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" type="success" effect="plain" v-if="row.avg_speed_tps > 0">
+                ⚡ {{ row.avg_speed_tps }} tok/s
+              </el-tag>
+              <span v-else style="color: var(--text-sub); font-size: 12px;">--</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="提示词 (未缓+缓存)" min-width="150" align="right">
+            <template #default="{ row }">
+              <div style="color: #fff; font-weight: 600;">{{ formatNum(row.input_tokens + row.cache_read_tokens) }}</div>
+              <div style="font-size: 11px; color: #06b6d4;">未缓: {{ formatNum(row.input_tokens) }}</div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="输出 (思考+正文)" min-width="140" align="right">
+            <template #default="{ row }">
+              <div style="color: #fbbf24; font-weight: 600;">{{ formatNum(row.thinking_tokens + row.response_tokens) }}</div>
+              <div style="font-size: 11px; color: #c084fc;">思考: {{ formatNum(row.thinking_tokens) }}</div>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="total_tokens" label="累计总消耗" min-width="140" align="right">
+            <template #default="{ row }">
+              <div style="font-size: 15px; font-weight: 800; color: #6366f1;">
+                {{ formatTokenMB(row.total_tokens) }}
+              </div>
+              <div style="font-size: 11px; color: var(--text-sub); font-family: monospace;">
+                {{ formatNum(row.total_tokens) }}
+              </div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="预估费用" min-width="130" align="right">
+            <template #default="{ row }">
+              <el-tooltip placement="top">
+                <template #content>
+                  <div>促销期: ${{ row.cost_promo_usd }} (≈ ¥{{ row.cost_promo_cny }})</div>
+                  <div>标准期: ${{ row.cost_std_usd }} (≈ ¥{{ (row.cost_std_usd * 7.23).toFixed(2) }})</div>
+                  <div style="color: #34d399;">Prompt 缓存已省: ${{ row.cost_saved_usd }}</div>
+                </template>
+                <div>
+                  <div style="color: #fbbf24; font-weight: 700; font-family: monospace;">{{ formatSessionCost(row) }}</div>
+                  <div style="font-size: 11px; color: #34d399;">省 {{ currency === 'USD' ? '$' : '¥' }}{{ (row.cost_saved_usd * (currency === 'USD' ? 1 : 7.23)).toFixed(3) }}</div>
+                </div>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="latest_time" label="最后修改时间" min-width="150" align="center">
+            <template #default="{ row }">
+              <div style="font-size: 12px; color: var(--text-sub);">{{ row.latest_time }}</div>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="操作" width="105" align="center">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" plain @click="openDrawer(row)">
+                轮次明细
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <!-- 分页 -->
+        <el-pagination
+          v-model:current-page="sessionTable.page"
+          v-model:page-size="sessionTable.page_size"
+          :page-sizes="[10, 15, 30, 50]"
+          :total="sessionTable.total"
+          layout="total, sizes, prev, pager, next"
+          @current-change="fetchSessions"
+          @size-change="fetchSessions"
+        ></el-pagination>
+      </div>
+    </div>
+
+    <!-- 轮次明细抽屉 -->
+    <el-drawer
+      v-model="drawerVisible"
+      :title="currentSession ? '会话轮次消耗明细：' + currentSession.title : '轮次明细'"
+      size="620px"
+      direction="rtl"
+    >
+      <div v-if="currentSession" style="padding: 10px 0;">
+        <div style="margin-bottom: 16px; background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155;">
+          <div style="font-size: 13px; color: var(--text-sub);">会话 ID: <span style="color: #fff; font-family: monospace;">{{ currentSession.session_id }}</span></div>
+          <div style="font-size: 13px; color: var(--text-sub); margin-top: 6px; display: flex; gap: 16px; flex-wrap: wrap;">
+            <span>总吞吐: <strong style="color: #6366f1;">{{ formatNum(currentSession.total_tokens) }}</strong> Tokens</span>
+            <span>预估费用: <strong style="color: #fbbf24;">{{ formatSessionCost(currentSession) }}</strong></span>
+            <span>总耗时: <strong style="color: #2dd4bf;">{{ currentSession.total_duration_sec }}s</strong></span>
+            <span>均速: <strong style="color: #10b981;">{{ currentSession.avg_speed_tps }} tok/s</strong></span>
+          </div>
+        </div>
+
+        <div v-for="(turn, idx) in currentSession.turns" :key="idx" class="turn-item">
+          <div class="turn-header">
+            <div>
+              <el-tag size="small" type="info">#{{ turn.turn_idx }}</el-tag>
+              <strong style="color: #fff; margin-left: 8px;">{{ turn.model }}</strong>
+            </div>
+            <span style="color: var(--text-sub); font-size: 12px;">{{ turn.timestamp_str }}</span>
+          </div>
+
+          <!-- 速率与耗时行 -->
+          <div style="display: flex; gap: 10px; margin: 6px 0; font-size: 12px; align-items: center; flex-wrap: wrap;">
+            <el-tag size="small" type="success" effect="dark" v-if="turn.speed_tps > 0">
+              ⚡ 速率: {{ turn.speed_tps }} tok/s
+            </el-tag>
+            <el-tag size="small" type="warning" effect="plain" v-if="turn.duration_sec > 0">
+              ⏱ 耗时: {{ turn.duration_sec }}s
+            </el-tag>
+            <el-tag size="small" type="info" effect="plain" v-if="turn.ttft_sec">
+              🚀 首字: {{ turn.ttft_sec }}s
+            </el-tag>
+            <el-tag size="small" type="warning" effect="dark">
+              💰 预估: {{ formatTurnCost(turn) }}
+            </el-tag>
+          </div>
+
+          <div class="turn-chips">
+            <span class="turn-chip">输入: <strong>{{ formatNum(turn.input_tokens) }}</strong></span>
+            <span class="turn-chip">缓存读: <strong>{{ formatNum(turn.cache_read_tokens) }}</strong></span>
+            <span class="turn-chip" style="color: #c084fc;">思考: <strong>{{ formatNum(turn.thinking_tokens) }}</strong></span>
+            <span class="turn-chip" style="color: #fbbf24;">回复: <strong>{{ formatNum(turn.response_tokens) }}</strong></span>
+            <span class="turn-chip" style="color: #34d399;" v-if="turn.saved_promo_usd > 0">已省: <strong>${{ turn.saved_promo_usd }}</strong></span>
+            <span class="turn-chip" style="color: #6366f1; margin-left: auto;">本轮总吞吐: <strong>{{ formatNum(turn.total_tokens) }}</strong></span>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
+
+    <!-- ✏️ 配额手动校准与设置对话框 -->
+    <el-dialog v-model="quotaDialogVisible" title="✏️ 手动校准 / 填报 5H 与周配额重置时间" width="560px">
+      <div style="font-size: 13px; color: #94a3b8; margin-bottom: 16px; line-height: 1.6;">
+        您可以根据官方终端或工具中查询到的剩余额度与倒计时进行校准。保存后看板将自动记忆并开启秒表实时递减倒计时！
+      </div>
+
+      <el-form label-position="top">
+        <!-- 5小时限额 -->
+        <div style="background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
+          <div style="font-weight: 700; color: #38bdf8; margin-bottom: 10px; display: flex; justify-content: space-between;">
+            <span>⏱️ 5小时限额设置 (5H Limit)</span>
+            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">滑动窗口周期</span>
+          </div>
+          <el-row :gutter="14">
+            <el-col :span="12">
+              <el-form-item label="当前剩余百分比 (%)">
+                <el-input-number v-model="editQuota.quota_5h.remaining_pct" :min="0" :max="100" style="width: 100%;"></el-input-number>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="重置时间/描述 (如: 4小时28分)">
+                <el-input v-model="editQuota.quota_5h.reset_time_str" placeholder="例: 4小时28分 或 15:30"></el-input>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap;">
+            <span style="font-size: 12px; color: var(--text-sub);">快捷倒计时:</span>
+            <el-button size="small" plain @click="set5hCountdown(1)">1小时</el-button>
+            <el-button size="small" plain @click="set5hCountdown(2)">2小时</el-button>
+            <el-button size="small" plain @click="set5hCountdown(3)">3小时</el-button>
+            <el-button size="small" plain @click="set5hCountdown(4)">4小时</el-button>
+            <el-button size="small" plain @click="set5hCountdown(5)">5小时满格</el-button>
+          </div>
+        </div>
+
+        <!-- 周限额 -->
+        <div style="background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155;">
+          <div style="font-weight: 700; color: #a855f7; margin-bottom: 10px; display: flex; justify-content: space-between;">
+            <span>📅 自然周配额设置 (Weekly Limit)</span>
+            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">每周一重置</span>
+          </div>
+          <el-row :gutter="14">
+            <el-col :span="12">
+              <el-form-item label="当前周剩余百分比 (%)">
+                <el-input-number v-model="editQuota.quota_week.remaining_pct" :min="0" :max="100" style="width: 100%;"></el-input-number>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="重置描述/时间 (如: 6天18小时)">
+                <el-input v-model="editQuota.quota_week.reset_time_str" placeholder="例: 6天18小时 或 下周一"></el-input>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="quotaDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="saveQuotaCalibration">保存并开始倒计时</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const icons = ElementPlusIconsVue;
+        const timeRange = ref('today');
+        const customDates = ref([]);
+        const refreshing = ref(false);
+        const tableLoading = ref(false);
+        const autoRefreshSec = ref(0);
+        let autoRefreshTimer = null;
+        let countdownTimer = null;
+
+        // 计费模式与币种配置
+        const pricingTier = ref('promo'); // 'promo' | 'standard'
+        const currency = ref('USD'); // 'USD' | 'CNY'
+
+        // 官方云端订阅限额状态
+        const officialLoading = ref(false);
+        const officialData = reactive({
+          fetched_at: '',
+          description: '',
+          groups: []
+        });
+
+        const fetchOfficialUsage = async (force = false) => {
+          officialLoading.value = true;
+          try {
+            const res = await fetch(`/api/official-usage?force=${force}`);
+            const data = await res.json();
+            if (data.success) {
+              officialData.fetched_at = data.fetched_at;
+              officialData.description = data.description || '';
+              officialData.groups = data.groups || [];
+              if (force) {
+                ElementPlus.ElMessage.success('官方云端订阅限额已成功同步！');
+              }
+            } else {
+              if (force) ElementPlus.ElMessage.warning(data.error || '获取官方限额失败');
+            }
+          } catch (e) {
+            console.error('Fetch official usage error:', e);
+            if (force) ElementPlus.ElMessage.error('网络或服务请求异常: ' + e);
+          } finally {
+            officialLoading.value = false;
+          }
+        };
+
+        const getRemainingColor = (pct) => {
+          if (pct >= 70) return '#10b981'; // 充足绿
+          if (pct >= 30) return '#f59e0b'; // 适中橙
+          return '#ef4444'; // 临界红
+        };
+
+        const formatIsoTime = (isoStr) => {
+          if (!isoStr) return '';
+          try {
+            const d = new Date(isoStr);
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const h = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            return `${m}-${day} ${h}:${min}`;
+          } catch (e) {
+            return isoStr;
+          }
+        };
+
+        const meta = reactive({
+          last_scan_time: '',
+          total_dbs: 0,
+          matched_turns: 0,
+        });
+
+        const summary = reactive({
+          total_tokens: 0,
+          input_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          thinking_tokens: 0,
+          response_tokens: 0,
+          total_output_tokens: 0,
+          cache_hit_rate: 0,
+          sessions_count: 0,
+          turns_count: 0,
+          avg_tokens_per_turn: 0,
+          avg_speed_tps: 0,
+          avg_duration_sec: 0,
+          costs: {
+            exchange_rate: 7.23,
+            promo: { total_usd: 0, total_cny: 0, input_usd: 0, cache_usd: 0, output_usd: 0, saved_usd: 0, saved_cny: 0 },
+            standard: { total_usd: 0, total_cny: 0, input_usd: 0, cache_usd: 0, output_usd: 0, saved_usd: 0, saved_cny: 0 }
+          }
+        });
+
+        // 用户手动校准与自定义配额状态
+        const customQuota = reactive({
+          quota_5h: { remaining_pct: 95, reset_seconds: 16000, reset_time_str: '4小时28分', capacity_tokens: 10000000, calibrated_at: Math.floor(Date.now() / 1000) },
+          quota_week: { remaining_pct: 88, reset_seconds: 580000, reset_time_str: '6天18小时', capacity_tokens: 50000000, calibrated_at: Math.floor(Date.now() / 1000) },
+        });
+
+        const editQuota = reactive({
+          quota_5h: { remaining_pct: 95, reset_time_str: '4小时28分', reset_seconds: 16000 },
+          quota_week: { remaining_pct: 88, reset_time_str: '6天18小时', reset_seconds: 580000 }
+        });
+
+        const quotaDialogVisible = ref(false);
+        const manual5hCountdown = ref(16000);
+        const weeklyResetCountdown = ref(580000);
+
+        const openQuotaDialog = () => {
+          editQuota.quota_5h.remaining_pct = customQuota.quota_5h.remaining_pct;
+          editQuota.quota_5h.reset_time_str = customQuota.quota_5h.reset_time_str;
+          editQuota.quota_5h.reset_seconds = manual5hCountdown.value;
+          editQuota.quota_week.remaining_pct = customQuota.quota_week.remaining_pct;
+          editQuota.quota_week.reset_time_str = customQuota.quota_week.reset_time_str;
+          quotaDialogVisible.value = true;
+        };
+
+        const set5hCountdown = (hours) => {
+          editQuota.quota_5h.reset_seconds = hours * 3600;
+          editQuota.quota_5h.reset_time_str = `${hours}小时00分`;
+        };
+
+        const saveQuotaCalibration = async () => {
+          customQuota.quota_5h.remaining_pct = editQuota.quota_5h.remaining_pct;
+          customQuota.quota_5h.reset_time_str = editQuota.quota_5h.reset_time_str;
+          customQuota.quota_5h.reset_seconds = editQuota.quota_5h.reset_seconds;
+          customQuota.quota_5h.calibrated_at = Math.floor(Date.now() / 1000);
+
+          customQuota.quota_week.remaining_pct = editQuota.quota_week.remaining_pct;
+          customQuota.quota_week.reset_time_str = editQuota.quota_week.reset_time_str;
+          customQuota.quota_week.calibrated_at = Math.floor(Date.now() / 1000);
+
+          manual5hCountdown.value = editQuota.quota_5h.reset_seconds || 0;
+
+          // 本地 localStorage 存储
+          try {
+            localStorage.setItem('antigravity_custom_quota', JSON.stringify(customQuota));
+          } catch (e) {}
+
+          // 后端持久化存储
+          try {
+            await fetch('/api/quota-config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(customQuota)
+            });
+          } catch (e) {}
+
+          quotaDialogVisible.value = false;
+          ElementPlus.ElMessage.success('配额与倒计时校准成功！');
+        };
+
+        // 动态计算当前区间的费用预估与 Prompt Caching 节省数额（带前端兜底计算，彻底杜绝 0$）
+        const currentCost = computed(() => {
+          const isCny = currency.value === 'CNY';
+          const sym = isCny ? '¥' : '$';
+          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
+          const isPromo = pricingTier.value === 'promo';
+
+          let total_usd = summary.costs?.[pricingTier.value]?.total_usd;
+          let input_usd = summary.costs?.[pricingTier.value]?.input_usd;
+          let cache_usd = summary.costs?.[pricingTier.value]?.cache_usd;
+          let output_usd = summary.costs?.[pricingTier.value]?.output_usd;
+          let saved_usd = summary.costs?.[pricingTier.value]?.saved_usd;
+
+          // 前端兜底乘积计算
+          if (total_usd === undefined || (total_usd === 0 && summary.total_tokens > 0)) {
+            const inT = Number(summary.input_tokens || 0);
+            const caT = Number(summary.cache_read_tokens || 0);
+            const outT = Number(summary.total_output_tokens || (Number(summary.thinking_tokens || 0) + Number(summary.response_tokens || 0)));
+            const inR = isPromo ? 0.75 : 1.50;
+            const caR = isPromo ? 0.0375 : 0.075;
+            const outR = isPromo ? 3.75 : 7.50;
+
+            input_usd = (inT / 1000000) * inR;
+            cache_usd = (caT / 1000000) * caR;
+            output_usd = (outT / 1000000) * outR;
+            total_usd = input_usd + cache_usd + output_usd;
+            saved_usd = (caT / 1000000) * (inR - caR);
+          }
+
+          const fmt = (val) => {
+            const num = Number(val || 0) * rate;
+            if (num === 0) return '0.00';
+            if (num >= 1.0) return num.toFixed(2);
+            if (num >= 0.001) return num.toFixed(4);
+            return num.toFixed(5);
+          };
+
+          return {
+            symbol: sym,
+            total: fmt(total_usd),
+            input: fmt(input_usd),
+            cache: fmt(cache_usd),
+            output: fmt(output_usd),
+            saved: fmt(saved_usd),
+            savedPercent: summary.total_tokens > 0 ? (summary.cache_hit_rate * 0.95).toFixed(1) : 0,
+          };
+        });
+
+        const formatSessionCost = (row) => {
+          if (!row) return '$0.00';
+          const isCny = currency.value === 'CNY';
+          const sym = isCny ? '¥' : '$';
+          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
+          const isPromo = pricingTier.value === 'promo';
+
+          let val = isPromo ? row.cost_promo_usd : row.cost_std_usd;
+          if (val === undefined || (val === 0 && row.total_tokens > 0)) {
+            const inT = Number(row.input_tokens || 0);
+            const caT = Number(row.cache_read_tokens || 0);
+            const outT = Number(row.thinking_tokens || 0) + Number(row.response_tokens || 0);
+            const inR = isPromo ? 0.75 : 1.50;
+            const caR = isPromo ? 0.0375 : 0.075;
+            const outR = isPromo ? 3.75 : 7.50;
+            val = (inT / 1e6) * inR + (caT / 1e6) * caR + (outT / 1e6) * outR;
+          }
+          const num = Number(val || 0) * rate;
+          if (num === 0) return `${sym}0.00`;
+          if (num >= 1.0) return `${sym}${num.toFixed(2)}`;
+          if (num >= 0.001) return `${sym}${num.toFixed(4)}`;
+          return `${sym}${num.toFixed(5)}`;
+        };
+
+        const formatTurnCost = (turn) => {
+          if (!turn) return '$0.00';
+          const isCny = currency.value === 'CNY';
+          const sym = isCny ? '¥' : '$';
+          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
+          const isPromo = pricingTier.value === 'promo';
+
+          let val = isPromo ? turn.cost_promo_usd : turn.cost_std_usd;
+          if (val === undefined || (val === 0 && turn.total_tokens > 0)) {
+            const inT = Number(turn.input_tokens || 0);
+            const caT = Number(turn.cache_read_tokens || 0);
+            const outT = Number(turn.total_output_tokens || (Number(turn.thinking_tokens || 0) + Number(turn.response_tokens || 0)));
+            const inR = isPromo ? 0.75 : 1.50;
+            const caR = isPromo ? 0.0375 : 0.075;
+            const outR = isPromo ? 3.75 : 7.50;
+            val = (inT / 1e6) * inR + (caT / 1e6) * caR + (outT / 1e6) * outR;
+          }
+          const num = Number(val || 0) * rate;
+          if (num === 0) return `${sym}0.00`;
+          if (num >= 1.0) return `${sym}${num.toFixed(2)}`;
+          if (num >= 0.001) return `${sym}${num.toFixed(4)}`;
+          return `${sym}${num.toFixed(5)}`;
+        };
+
+        const quotas = reactive({
+          quota_5h: {
+            used_tokens: 0,
+            calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            next_relief_seconds: 0,
+            next_relief_tokens: 0,
+            window_start: '',
+            window_end: ''
+          },
+          quota_week: {
+            used_tokens: 0,
+            calls: 0,
+            weekly_reset_seconds: 0,
+            monday_date: '',
+            daily_burn_rate: 0
+          }
+        });
+
+        const reliefCountdown = ref(0);
+
+        const models = ref([]);
+        const trendData = ref([]);
+
+        const trendChartRef = ref(null);
+        const modelChartRef = ref(null);
+        let trendChart = null;
+        let modelChart = null;
+
+        const searchQuery = ref('');
+        let searchTimeout = null;
+
+        const sessionTable = reactive({
+          page: 1,
+          page_size: 15,
+          total: 0,
+          items: []
+        });
+
+        const drawerVisible = ref(false);
+        const currentSession = ref(null);
+
+        // 费用估计面板与模型分布折叠控制（默认收起不展开）
+        const costSectionCollapsed = ref(true);
+        const modelChartCollapsed = ref(true);
+
+        const toggleModelChart = () => {
+          modelChartCollapsed.value = !modelChartCollapsed.value;
+          if (!modelChartCollapsed.value) {
+            nextTick(() => {
+              renderModelChart();
+              if (modelChart) {
+                modelChart.resize();
+              }
+            });
+          }
+        };
+
+        // 大字体 M 单位计数，自然进位到 B，小字显示详细 token
+        const formatTokenMB = (num) => {
+          if (!num || isNaN(num) || Number(num) === 0) return '0.00 M';
+          const n = Number(num);
+          if (n >= 1e9) {
+            return (n / 1e9).toFixed(2) + ' B';
+          } else if (n >= 1e6) {
+            return (n / 1e6).toFixed(2) + ' M';
+          } else if (n >= 1e4) {
+            return (n / 1e6).toFixed(3) + ' M';
+          } else {
+            return (n / 1e6).toFixed(4) + ' M';
+          }
+        };
+
+        // 格式化数字
+        const formatNum = (num) => {
+          if (!num && num !== 0) return '0';
+          return Number(num).toLocaleString('en-US');
+        };
+
+        const formatShort = (num) => {
+          if (!num) return '0';
+          if (num >= 100000000) return (num / 100000000).toFixed(2) + ' 亿';
+          if (num >= 10000) return (num / 10000).toFixed(1) + ' 万';
+          return num;
+        };
+
+        // 倒计时格式化
+        const formatCountdown = (totalSec) => {
+          if (!totalSec || totalSec <= 0) return '即将释放';
+          const m = Math.floor(totalSec / 60);
+          const s = totalSec % 60;
+          if (m >= 60) {
+            const h = Math.floor(m / 60);
+            return `${h}小时${m % 60}分`;
+          }
+          return `${m}分${s}秒`;
+        };
+
+        // 获取概览数据（指标 + 折线走势 + 模型分布 + 本地配额）
+        const fetchOverview = async () => {
+          try {
+            let url = `/api/overview?range=${timeRange.value}`;
+            if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
+              url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
+            }
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.success) {
+              Object.assign(meta, data.meta);
+              Object.assign(summary, data.summary);
+              if (data.quotas) {
+                Object.assign(quotas.quota_5h, data.quotas.quota_5h);
+                Object.assign(quotas.quota_week, data.quotas.quota_week);
+                reliefCountdown.value = data.quotas.quota_5h.next_relief_seconds || 0;
+                weeklyResetCountdown.value = data.quotas.quota_week.weekly_reset_seconds || 0;
+              }
+              if (data.custom_quota) {
+                try {
+                  const saved = localStorage.getItem('antigravity_custom_quota');
+                  if (saved) {
+                    Object.assign(customQuota, JSON.parse(saved));
+                  } else {
+                    Object.assign(customQuota, data.custom_quota);
+                  }
+                } catch(e) {
+                  Object.assign(customQuota, data.custom_quota);
+                }
+                const nowTs = Math.floor(Date.now() / 1000);
+                const passed = Math.max(0, nowTs - (customQuota.quota_5h.calibrated_at || nowTs));
+                manual5hCountdown.value = Math.max(0, (customQuota.quota_5h.reset_seconds || 16000) - passed);
+              }
+              if (data.official_quotas && data.official_quotas.success && (!officialData.groups || officialData.groups.length === 0)) {
+                officialData.fetched_at = data.official_quotas.fetched_at;
+                officialData.description = data.official_quotas.description;
+                officialData.groups = data.official_quotas.groups;
+              }
+              models.value = data.models || [];
+              trendData.value = data.trend || [];
+
+              renderTrendChart();
+              if (!modelChartCollapsed.value) {
+                renderModelChart();
+              }
+            }
+          } catch (e) {
+            console.error('Fetch overview error:', e);
+          }
+        };
+
+        // 获取会话列表
+        const fetchSessions = async () => {
+          tableLoading.value = true;
+          try {
+            let url = `/api/sessions?range=${timeRange.value}&page=${sessionTable.page}&page_size=${sessionTable.page_size}&search=${encodeURIComponent(searchQuery.value)}`;
+            if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
+              url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
+            }
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.success) {
+              sessionTable.total = data.data.total;
+              sessionTable.items = data.data.items;
+            }
+          } catch (e) {
+            console.error('Fetch sessions error:', e);
+          } finally {
+            tableLoading.value = false;
+          }
+        };
+
+        const fetchData = async () => {
+          await Promise.all([fetchOverview(), fetchSessions()]);
+        };
+
+        // 时间筛选切换
+        const onRangeChange = () => {
+          sessionTable.page = 1;
+          if (timeRange.value !== 'custom') {
+            fetchData();
+          }
+        };
+
+        // 搜索去抖
+        const onSearchInput = () => {
+          clearTimeout(searchTimeout);
+          searchTimeout = setTimeout(() => {
+            sessionTable.page = 1;
+            fetchSessions();
+          }, 300);
+        };
+
+        // 手动刷新本地
+        const manualRefresh = async () => {
+          refreshing.value = true;
+          try {
+            const res = await fetch('/api/refresh', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+              ElementPlus.ElMessage.success(data.message || '本地重扫成功');
+              await fetchData();
+            } else {
+              ElementPlus.ElMessage.error('本地刷新失败');
+            }
+          } catch (e) {
+            ElementPlus.ElMessage.error('网络或服务请求异常: ' + e);
+          } finally {
+            refreshing.value = false;
+          }
+        };
+
+        // 自动刷新逻辑
+        const setupAutoRefresh = () => {
+          if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+          }
+          if (autoRefreshSec.value > 0) {
+            autoRefreshTimer = setInterval(() => {
+              fetchData();
+            }, autoRefreshSec.value * 1000);
+            ElementPlus.ElMessage.info(`已开启本地自动刷新 (每 ${autoRefreshSec.value} 秒)`);
+          } else {
+            ElementPlus.ElMessage.info('已关闭本地自动刷新');
+          }
+        };
+
+        // 导出 CSV
+        const exportCsv = () => {
+          let url = `/api/export-csv?range=${timeRange.value}`;
+          if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
+            url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
+          }
+          window.open(url, '_blank');
+        };
+
+        // 打开会话详情抽屉
+        const openDrawer = (row) => {
+          currentSession.value = row;
+          drawerVisible.value = true;
+        };
+
+        // 渲染走势折线图
+        const renderTrendChart = () => {
+          if (!trendChartRef.value) return;
+          if (!trendChart) {
+            trendChart = echarts.init(trendChartRef.value);
+          }
+
+          const times = trendData.value.map(d => d.time);
+          const totals = trendData.value.map(d => d.total);
+          const inputs = trendData.value.map(d => d.input);
+          const cacheReads = trendData.value.map(d => d.cache_read);
+          const thinkings = trendData.value.map(d => d.thinking);
+          const responses = trendData.value.map(d => d.response);
+
+          const option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+              trigger: 'axis',
+              backgroundColor: '#1e293b',
+              borderColor: '#475569',
+              textStyle: { color: '#f8fafc' },
+              formatter: function(params) {
+                let html = `<div style="font-weight: bold; margin-bottom: 4px;">${params[0].name}</div>`;
+                params.forEach(p => {
+                  html += `<div style="display:flex; justify-content:space-between; gap:12px; font-size:12px;">
+                    <span>${p.marker} ${p.seriesName}</span>
+                    <strong>${Number(p.value).toLocaleString()}</strong>
+                  </div>`;
+                });
+                return html;
+              }
+            },
+            legend: {
+              data: ['总 Token', '缓存读取', '未缓存输入', '思考推理', '回复正文'],
+              textStyle: { color: '#94a3b8' },
+              top: 0
+            },
+            grid: {
+              left: '3%',
+              right: '4%',
+              bottom: '8%',
+              top: '12%',
+              containLabel: true
+            },
+            xAxis: {
+              type: 'category',
+              boundaryGap: false,
+              data: times,
+              axisLine: { lineStyle: { color: '#334155' } },
+              axisLabel: { color: '#94a3b8' }
+            },
+            yAxis: {
+              type: 'value',
+              splitLine: { lineStyle: { color: '#1e293b' } },
+              axisLabel: {
+                color: '#94a3b8',
+                formatter: function (val) {
+                  if (val >= 1000000) return (val / 1000000).toFixed(1) + 'M';
+                  if (val >= 1000) return (val / 1000).toFixed(0) + 'k';
+                  return val;
+                }
+              }
+            },
+            dataZoom: [
+              {
+                type: 'inside',
+                start: 0,
+                end: 100
+              }
+            ],
+            series: [
+              {
+                name: '总 Token',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                lineStyle: { width: 3, color: '#6366f1' },
+                areaStyle: {
+                  color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: 'rgba(99, 102, 241, 0.35)' },
+                    { offset: 1, color: 'rgba(99, 102, 241, 0.0)' }
+                  ])
+                },
+                data: totals
+              },
+              {
+                name: '缓存读取',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                lineStyle: { width: 2, color: '#3b82f6' },
+                data: cacheReads
+              },
+              {
+                name: '未缓存输入',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                lineStyle: { width: 2, color: '#06b6d4' },
+                data: inputs
+              },
+              {
+                name: '思考推理',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                lineStyle: { width: 2, color: '#c084fc' },
+                data: thinkings
+              },
+              {
+                name: '回复正文',
+                type: 'line',
+                smooth: true,
+                showSymbol: false,
+                lineStyle: { width: 2, color: '#fbbf24' },
+                data: responses
+              }
+            ]
+          };
+          trendChart.setOption(option);
+        };
+
+        // 渲染模型分布饼图
+        const renderModelChart = () => {
+          if (!modelChartRef.value) return;
+          if (!modelChart) {
+            modelChart = echarts.init(modelChartRef.value);
+          }
+
+          const pieData = models.value.map(m => ({
+            name: m.model,
+            value: m.total_tokens,
+            calls: m.calls
+          }));
+
+          const option = {
+            backgroundColor: 'transparent',
+            tooltip: {
+              trigger: 'item',
+              backgroundColor: '#1e293b',
+              borderColor: '#475569',
+              textStyle: { color: '#f8fafc' },
+              formatter: function(params) {
+                return `<div style="font-weight: bold; margin-bottom: 4px;">${params.name}</div>
+                  <div>消耗 Token: <strong>${Number(params.value).toLocaleString()}</strong> (${params.percent}%)</div>
+                  <div>调用次数: <strong>${params.data.calls} 次</strong></div>`;
+              }
+            },
+            legend: {
+              orient: 'horizontal',
+              bottom: 0,
+              textStyle: { color: '#94a3b8', fontSize: 11 },
+              itemWidth: 10,
+              itemHeight: 10
+            },
+            series: [
+              {
+                name: '模型分布',
+                type: 'pie',
+                radius: ['45%', '70%'],
+                center: ['50%', '45%'],
+                avoidLabelOverlap: false,
+                itemStyle: {
+                  borderRadius: 6,
+                  borderColor: '#1e293b',
+                  borderWidth: 2
+                },
+                label: {
+                  show: false
+                },
+                emphasis: {
+                  label: {
+                    show: true,
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    color: '#fff'
+                  }
+                },
+                data: pieData
+              }
+            ]
+          };
+          modelChart.setOption(option);
+        };
+
+        // 监听窗口缩放自适应
+        const handleResize = () => {
+          if (trendChart) trendChart.resize();
+          if (modelChart && !modelChartCollapsed.value) modelChart.resize();
+        };
+
+        onMounted(async () => {
+          window.addEventListener('resize', handleResize);
+          await fetchData();
+          // 初次加载异步获取官方云端配额
+          fetchOfficialUsage(false);
+
+          // 启动每秒倒计时递减器
+          countdownTimer = setInterval(() => {
+            if (reliefCountdown.value > 0) reliefCountdown.value--;
+            if (manual5hCountdown.value > 0) manual5hCountdown.value--;
+            if (weeklyResetCountdown.value > 0) weeklyResetCountdown.value--;
+          }, 1000);
+        });
+
+        onUnmounted(() => {
+          window.removeEventListener('resize', handleResize);
+          if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+          if (countdownTimer) clearInterval(countdownTimer);
+        });
+
+        return {
+          icons,
+          timeRange,
+          customDates,
+          refreshing,
+          tableLoading,
+          autoRefreshSec,
+          officialLoading,
+          officialData,
+          fetchOfficialUsage,
+          getRemainingColor,
+          formatIsoTime,
+          meta,
+          summary,
+          quotas,
+          reliefCountdown,
+          manual5hCountdown,
+          weeklyResetCountdown,
+          customQuota,
+          editQuota,
+          quotaDialogVisible,
+          openQuotaDialog,
+          set5hCountdown,
+          saveQuotaCalibration,
+          models,
+          trendChartRef,
+          modelChartRef,
+          searchQuery,
+          sessionTable,
+          drawerVisible,
+          currentSession,
+          formatNum,
+          formatShort,
+          formatTokenMB,
+          costSectionCollapsed,
+          modelChartCollapsed,
+          toggleModelChart,
+          formatCountdown,
+          fetchData,
+          fetchSessions,
+          onRangeChange,
+          onSearchInput,
+          manualRefresh,
+          setupAutoRefresh,
+          exportCsv,
+          openDrawer,
+          pricingTier,
+          currency,
+          currentCost,
+          formatSessionCost,
+          formatTurnCost,
+        };
+      }
+    }).use(ElementPlus).mount('#app');
+  </script>
+</body>
+</html>
