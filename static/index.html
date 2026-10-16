@@ -4,16 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Antigravity Token 消耗统计看板</title>
-  <!-- Element Plus CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
-  <!-- Vue 3 -->
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Element Plus JS -->
-  <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.js"></script>
-  <!-- Element Plus Icons -->
-  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
-  <!-- ECharts -->
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <!-- 本地离线高可用资源 (零网络依赖 · 杜绝因CDN超时或无法连接造成的黑屏) -->
+  <link rel="stylesheet" href="/static/libs/element-plus.css">
+  <script src="/static/libs/vue.global.prod.js"></script>
+  <script src="/static/libs/element-plus.js"></script>
+  <script src="/static/libs/icons-vue.js"></script>
+  <script src="/static/libs/echarts.min.js"></script>
+
+  <script>
+    // 全局异常捕获，在界面上直观展示错误详情，杜绝黑屏死机
+    window.addEventListener('error', function(e) {
+      console.error('Global Error caught:', e);
+      var errBox = document.getElementById('preloader-error');
+      var errMsg = document.getElementById('preloader-error-msg');
+      if (errBox && errMsg) {
+        errBox.style.display = 'block';
+        errMsg.innerText = (e.message || e.toString()) + (e.filename ? ' (' + e.filename + ':' + e.lineno + ')' : '');
+      }
+    });
+  </script>
+
 
   <style>
     :root {
@@ -591,6 +601,22 @@
   </style>
 </head>
 <body>
+  <!-- 启动加载与异常状态屏（Vue 挂载成功后自动渐隐移除） -->
+  <div id="app-preloader" style="position:fixed; top:0; left:0; width:100vw; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#0b1120; z-index:99999; color:#f8fafc; font-family:-apple-system,BlinkMacSystemFont,sans-serif; transition:opacity 0.25s ease;">
+    <div style="width:40px; height:40px; border:3px solid rgba(99,102,241,0.2); border-top-color:#6366f1; border-radius:50%; animation:preloader-spin 0.8s linear infinite; margin-bottom:14px;"></div>
+    <div style="font-size:15px; font-weight:600; color:#cbd5e1; letter-spacing:0.5px;">⚡ Antigravity 看板启动中...</div>
+    <div id="preloader-error" style="display:none; margin-top:16px; padding:12px 18px; max-width:550px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; border-radius:8px; color:#fca5a5; font-size:13px; text-align:center;">
+      <div style="font-weight:bold; margin-bottom:6px;">⚠️ 页面加载遇到异常</div>
+      <div id="preloader-error-msg" style="word-break:break-all; font-family:monospace; margin-bottom:8px;"></div>
+      <button onclick="location.reload()" style="background:#6366f1; color:white; border:none; padding:6px 14px; border-radius:4px; cursor:pointer;">重试刷新</button>
+    </div>
+  </div>
+  <style>
+    @keyframes preloader-spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
   <div id="app">
     <!-- 顶部导航 -->
     <header class="header">
@@ -2285,6 +2311,13 @@ Five Hour Limit Remaining
         };
 
         onMounted(async () => {
+          // 隐藏并平滑移除预加载骨架屏
+          const preloader = document.getElementById('app-preloader');
+          if (preloader) {
+            preloader.style.opacity = '0';
+            setTimeout(() => { if (preloader.parentNode) preloader.remove(); }, 250);
+          }
+
           window.addEventListener('resize', handleResize);
           await fetchData();
           // 初次加载异步获取官方云端配额
