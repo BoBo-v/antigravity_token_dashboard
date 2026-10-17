@@ -36,14 +36,10 @@ def set_autostart(enabled: bool) -> bool:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
             if enabled:
                 if getattr(sys, "frozen", False):
-                    cmd = f'"{sys.executable}"'
+                    cmd = f'"{sys.executable}" --tray'
                 else:
                     curr_dir = Path(__file__).resolve().parent
-                    vbs_path = curr_dir / "start_desktop.vbs"
-                    if vbs_path.exists():
-                        cmd = f'wscript.exe "{vbs_path}"'
-                    else:
-                        cmd = f'pythonw.exe "{curr_dir / "desktop.py"}"'
+                    cmd = f'pythonw.exe "{curr_dir / "desktop.py"}" --tray'
                 winreg.SetValueEx(key, REG_APP_NAME, 0, winreg.REG_SZ, cmd)
             else:
                 try:
@@ -167,6 +163,24 @@ class DesktopTrayManager:
         self.notify_icon.DoubleClick += lambda s, e: self.restore_window()
 
         self.notify_icon.Visible = True
+
+        # 如果是开机静默常驻启动（带 --tray 或 --minimized），启动时直接隐藏至托盘
+        # 否则（常规双击启动），确保强制前置激活呈现主窗口，杜绝被操作系统误隐藏
+        if "--tray" in sys.argv or "--minimized" in sys.argv:
+            if self.form:
+                try:
+                    self.form.Hide()
+                except Exception:
+                    pass
+        else:
+            if self.form:
+                try:
+                    self.form.Show()
+                    self.form.WindowState = WinForms.FormWindowState.Normal
+                    self.form.Activate()
+                    self.form.BringToFront()
+                except Exception:
+                    pass
 
         # 启动后台定时器刷新 Tooltip（每 20 秒更新一次）
         self._updater_thread = threading.Thread(target=self._periodic_tooltip_updater, daemon=True)
