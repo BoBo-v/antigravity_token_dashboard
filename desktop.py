@@ -33,6 +33,11 @@ def hide_console_window():
             pass
 
 
+# 针对控制台启动，在加载任何重型依赖（uvicorn/fastapi）前立即毫秒级隐藏黑框
+if sys.platform == "win32" and "--show-console" not in sys.argv and "--debug" not in sys.argv:
+    hide_console_window()
+
+
 BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
