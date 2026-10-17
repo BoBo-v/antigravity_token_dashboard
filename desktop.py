@@ -12,6 +12,27 @@ import os
 import threading
 from pathlib import Path
 
+# 防止在使用 pythonw 无控制台运行时 sys.stdout / sys.stderr 为 None 导致 print 报错
+if sys.stdout is None:
+    import io
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    import io
+    sys.stderr = io.StringIO()
+
+
+def hide_console_window():
+    """在 Windows 系统下自动隐藏控制台黑框窗口"""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # 0 = SW_HIDE
+        except Exception:
+            pass
+
+
 BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
@@ -80,17 +101,22 @@ def wait_for_server(url: str, timeout: float = 15.0) -> bool:
     """轮询等待本地 FastAPI 服务完全就绪，杜绝在服务未就绪时加载导致黑屏/连接拒绝"""
     import urllib.request
     start = time.time()
-    print("[*] 正在等待本地后端服务就绪...", end="", flush=True)
+    show_log = "--show-console" in sys.argv or "--debug" in sys.argv
+    if show_log:
+        print("[*] 正在等待本地后端服务就绪...", end="", flush=True)
     while time.time() - start < timeout:
         try:
             with urllib.request.urlopen(f"{url}/", timeout=0.8) as resp:
                 if resp.status == 200:
-                    print(" [就绪!]")
+                    if show_log:
+                        print(" [就绪!]")
                     return True
         except Exception:
             time.sleep(0.2)
-            print(".", end="", flush=True)
-    print(" [超时!]")
+            if show_log:
+                print(".", end="", flush=True)
+    if show_log:
+        print(" [超时!]")
     return False
 
 
@@ -99,12 +125,25 @@ def main():
     port = 8765
     url = f"http://{host}:{port}"
 
+    # 判断是否为调试模式或显式保留控制台
+    debug_mode = "--debug" in sys.argv
+    show_console = "--show-console" in sys.argv
+
+    # 默认自动隐藏控制台黑框，给用户最纯粹的原生桌面客户端体验
+    if not show_console and not debug_mode:
+        hide_console_window()
+        # 静默 pywebview 的内部调试日志
+        import logging
+        logging.getLogger("pywebview").setLevel(logging.ERROR)
+        os.environ["PYWEBVIEW_LOG"] = "error"
+
     kill_port_owner(port)
 
-    print("=" * 70)
-    print("   正在启动 Antigravity Token 独立桌面客户端...")
-    print(f"   后台服务绑定: {url}")
-    print("=" * 70)
+    if show_console or debug_mode:
+        print("=" * 70)
+        print("   正在启动 Antigravity Token 独立桌面客户端...")
+        print(f"   后台服务绑定: {url}")
+        print("=" * 70)
 
     # 1. 启动嵌入式 FastAPI 服务线程
     server_thread = ServerThread(host=host, port=port)
@@ -112,7 +151,8 @@ def main():
 
     # 2. 严谨等待服务完全响应 200，杜绝早期请求失败导致黑屏
     if not wait_for_server(url, timeout=12.0):
-        print("[!] 警告: 本地服务响应较慢，继续尝试打开窗口...")
+        if show_console or debug_mode:
+            print("[!] 警告: 本地服务响应较慢，继续尝试打开窗口...")
 
     # 3. 创建原生独立窗口（使用 Windows 10/11 内置 WebView2 渲染器）
     window = webview.create_window(
@@ -126,14 +166,16 @@ def main():
     )
 
     try:
-        # debug=True 允许用户在窗口中右键“检查”调试工具，便于观察
-        webview.start(gui="edgechromium", debug=True)
+        # 默认关闭 debug 避免控制台输出大量事件日志与检查弹框
+        webview.start(gui="edgechromium", debug=debug_mode)
     except Exception as e:
-        print(f"[!] WebView2 启动异常: {e}，尝试通用 GUI 启动...")
+        if show_console or debug_mode:
+            print(f"[!] WebView2 启动异常: {e}，尝试通用 GUI 启动...")
         try:
-            webview.start(debug=True)
+            webview.start(debug=debug_mode)
         except Exception as e2:
-            print(f"[!] 原生窗口启动失败: {e2}，自动切换为默认浏览器打开...")
+            if show_console or debug_mode:
+                print(f"[!] 原生窗口启动失败: {e2}，自动切换为默认浏览器打开...")
             import webbrowser
             webbrowser.open(url)
             try:
