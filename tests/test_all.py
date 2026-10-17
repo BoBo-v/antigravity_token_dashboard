@@ -370,6 +370,25 @@ class TestLaunchersAndScripts(unittest.TestCase):
             self.assertIsNone(manager._created_hicon, "dispose() 后 GDI HICON 句柄未被置空销毁")
             self.assertIsNone(manager._tray_icon, "dispose() 后托盘 Icon 实例未被置空销毁")
 
+    def test_tray_data_folder_and_alert_logic(self):
+        """测试系统托盘打开数据目录接口与配额耗尽预警逻辑无异常"""
+        if sys.platform == "win32":
+            from desktop_tray import DesktopTrayManager
+
+            class MockWindow:
+                class Events:
+                    shown = []
+                    closing = []
+                events = Events()
+                uid = "test-uid-folder"
+
+            manager = DesktopTrayManager(MockWindow())
+            self.assertTrue(hasattr(manager, "open_data_folder"))
+            self.assertTrue(hasattr(manager, "_check_quota_alert"))
+            self.assertEqual(manager._last_alert_time, 0)
+            # 执行一次检查，确保无异常抛出
+            manager._check_quota_alert()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

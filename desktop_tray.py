@@ -63,6 +63,7 @@ class DesktopTrayManager:
         self._updater_thread = None
         self._created_hicon = None
         self._tray_icon = None
+        self._last_alert_time = 0
 
     def setup(self):
         """挂载 pywebview 事件监听"""
@@ -196,10 +197,15 @@ class DesktopTrayManager:
         refresh_item.Click += lambda s, e: self.manual_refresh()
         cms.Items.Add(refresh_item)
 
+        # 3. 打开数据目录 (.gemini)
+        folder_item = WinForms.ToolStripMenuItem("📂 打开数据目录 (.gemini)")
+        folder_item.Click += lambda s, e: self.open_data_folder()
+        cms.Items.Add(folder_item)
+
         # 分割线
         cms.Items.Add(WinForms.ToolStripSeparator())
 
-        # 3. 开机自启切换
+        # 4. 开机自启切换
         autostart_item = WinForms.ToolStripMenuItem("🚀 开机自动启动")
         autostart_item.Checked = is_autostart_enabled()
         autostart_item.Click += lambda s, e: self.toggle_autostart(autostart_item)
@@ -293,12 +299,56 @@ class DesktopTrayManager:
             except Exception:
                 pass
 
+    def _check_quota_alert(self):
+        """配额告警检查：当 5H 已用达到 90% 以上或剩余 <= 10% 时弹出 Windows 气泡警告（1小时冷却防打扰）"""
+        try:
+            now = time.time()
+            if now - self._last_alert_time < 3600:
+                return
+
+            from backend.scanner import scanner_service
+            from backend.app import load_quota_config
+
+            all_turns = scanner_service.get_all_turns()
+            quotas = scanner_service.calculate_quotas(all_turns)
+            cfg = load_quota_config()
+
+            q5h = quotas.get("quota_5h", {})
+            used_tokens = q5h.get("used_tokens", 0)
+            pct = cfg.get("quota_5h", {}).get("remaining_pct")
+
+            is_exhausted = False
+            alert_msg = ""
+            if pct is not None and pct <= 10:
+                is_exhausted = True
+                alert_msg = f"当前 5H 剩余额度仅剩 {pct}%（已用 {used_tokens / 1_000_000:.1f}M Tokens），请注意降频或切换模型！"
+            elif pct is None:
+                limit = cfg.get("quota_5h", {}).get("limit_tokens", 15_000_000)
+                if limit > 0 and (used_tokens / limit) >= 0.9:
+                    is_exhausted = True
+                    alert_msg = f"当前 5H 消耗已达 {used_tokens / 1_000_000:.1f}M（占预估上限 {used_tokens / limit * 100:.0f}%），接近限额临界！"
+
+            if is_exhausted and self.notify_icon:
+                import clr
+                clr.AddReference("System.Windows.Forms")
+                import System.Windows.Forms as WinForms
+                self._last_alert_time = now
+                self.notify_icon.ShowBalloonTip(
+                    5000,
+                    "⚠️ Antigravity 5H 配额即将耗尽",
+                    alert_msg,
+                    WinForms.ToolTipIcon.Warning
+                )
+        except Exception:
+            pass
+
     def _periodic_tooltip_updater(self):
-        """后台轮询更新托盘提示文案"""
+        """后台轮询更新托盘提示文案与配额预警"""
         while self._running:
             time.sleep(20)
             if self._running:
                 self.update_tooltip()
+                self._check_quota_alert()
 
     def restore_window(self):
         """显示并激活主窗口"""
@@ -361,6 +411,20 @@ class DesktopTrayManager:
                 pass
 
         threading.Thread(target=run_refresh, daemon=True).start()
+
+    def open_data_folder(self):
+        """在 Windows 资源管理器中极速打开 ~/.gemini 数据目录"""
+        try:
+            from backend.scanner import scanner_service
+            root = scanner_service.get_gemini_root()
+            if root and root.exists():
+                os.startfile(str(root))
+            else:
+                home_gemini = Path.home() / ".gemini"
+                if home_gemini.exists():
+                    os.startfile(str(home_gemini))
+        except Exception as e:
+            print(f"[!] 打开数据目录失败: {e}")
 
     def toggle_autostart(self, item):
         """切换开机自启动"""
