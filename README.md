@@ -89,21 +89,90 @@ python run.py
 
 ---
 
+## 📦 打包为独立 EXE 或 Windows 安装包
+
+本项目支持将 Python 源码、FastAPI 服务、pywebview 与全部前端离线库完整打包为 **无需安装 Python 即可在任何 Windows 电脑运行的独立 EXE** 或 **标准 Windows 安装包向导（Setup.exe）**。
+
+### 方式 1：一键自动打包单文件 EXE（最简单）
+
+项目根目录已内置打包配置与脚本，双击或在终端中运行：
+👉 **`build_exe.bat`**
+
+脚本会自动安装 `pyinstaller`，并根据预设的 `AntigravityDashboard.spec` 规格文件进行编译构建：
+- 自动内嵌 `static/` 离线前端库与单文件 HTML；
+- 自动补充 `uvicorn`、`fastapi`、`pywebview` 等异步与 GUI 隐式依赖；
+- 自动配置无控制台黑框运行；
+- 生成产物位于 **`dist/AntigravityDashboard.exe`**，可直接拷贝分享给他人双击使用。
+
+---
+
+### 方式 2：命令行手动使用 PyInstaller 打包
+
+如果习惯使用命令行，可以按需选择以下两种模式：
+
+#### 模式 A：单文件绿色版（便于分发单个文件）
+```powershell
+# 1. 安装 PyInstaller
+pip install pyinstaller
+
+# 2. 执行一键编译
+pyinstaller AntigravityDashboard.spec --clean
+```
+构建成功后，在 `dist/` 目录下即可找到单一的 `AntigravityDashboard.exe`。
+
+#### 模式 B：绿色目录版（启动更快，<0.5秒秒开）
+若希望启动更迅速（省去每次启动时解压到临时目录的时间）：
+```powershell
+pyinstaller --onedir --noconsole --name AntigravityDashboard `
+  --add-data "static;static" `
+  --add-data "data;data" `
+  --hidden-import uvicorn.logging `
+  --hidden-import uvicorn.loops.auto `
+  --hidden-import uvicorn.protocols.http.h11_impl `
+  --hidden-import uvicorn.lifespan.on `
+  --hidden-import clr `
+  --hidden-import pythonnet `
+  desktop.py
+```
+构建产物位于 `dist/AntigravityDashboard/` 文件夹中。
+
+---
+
+### 方式 3：制作专业 Windows 安装向导包（Setup.exe）
+
+若需要发布给普通用户，提供类似商业软件的桌面快捷方式、开始菜单图标与控制面板卸载功能：
+
+1. 先执行 `build_exe.bat` 生成 `dist/AntigravityDashboard.exe`；
+2. 下载并安装免费开源的 [Inno Setup 6](https://jrsoftware.org/isdl.php)；
+3. 用 Inno Setup 打开项目中的 **`installer/setup.iss`** 脚本；
+4. 点击顶部菜单 **`Build` -> `Compile`**（或快捷键 `Ctrl + F9`）；
+5. 编译完成后，将在 `dist_installer/` 目录生成 **`Antigravity_Token_Dashboard_Setup_v1.0.0.exe`** 标准中文安装包向导。
+
+---
+
 ## 📂 项目结构
 
 ```text
 antigravity_token_dashboard/
 ├── backend/
-│   ├── app.py             # FastAPI 核心服务端与路由
+│   ├── app.py             # FastAPI 核心服务端与路由（内置 PyInstaller 冻结路径自适应）
 │   ├── scanner.py         # SQLite 扫描解析、时序聚合、滑动释放计算与费用核算
 │   └── parser.py          # 会话明细、纳秒耗时与速率提取引擎
 ├── static/
+│   ├── libs/              # 内置离线前端库（Vue 3, Element Plus, ECharts 等）
 │   └── index.html         # Vue 3 + Element Plus + ECharts 单文件响应式前端
 ├── data/
 │   └── .gitkeep           # 本地持久化配置目录
-├── desktop.py             # pywebview 桌面端包装（1024x680 独立窗口与端口管理）
+├── tests/
+│   └── test_all.py        # 覆盖前后端与脚本的 17 项全量自动化测试集
+├── installer/
+│   └── setup.iss          # Inno Setup 6 Windows 安装向导配置文件
+├── AntigravityDashboard.spec # PyInstaller 规范打包配置文件
+├── build_exe.bat          # 一键编译生成独立 EXE 批处理
+├── desktop.py             # pywebview 桌面端包装（1024x680 独立窗口、无黑框与端口管理）
 ├── run.py                 # 网页模式启动器
 ├── requirements.txt       # Python 依赖清单
+├── start_desktop.vbs      # 原生极简静默桌面启动器（零黑框）
 ├── start_desktop.bat      # Windows 桌面版一键启动脚本
 ├── start.bat              # Windows 网页版一键启动脚本
 └── README.md              # 项目文档

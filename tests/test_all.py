@@ -273,7 +273,8 @@ class TestLaunchersAndScripts(unittest.TestCase):
             "start.bat",
             "start_browser.bat",
             "start_desktop.bat",
-            "start_desktop.vbs"
+            "start_desktop.vbs",
+            "build_exe.bat"
         ]
         for name in launcher_files:
             file_path = BASE_DIR / name

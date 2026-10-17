@@ -5,6 +5,7 @@ FastAPI 后端服务入口与 REST API 接口定义
 """
 
 import os
+import sys
 import json
 import time
 from pathlib import Path
@@ -28,15 +29,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 静态资源与配置路径
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-CONFIG_FILE = Path(__file__).resolve().parent.parent / "data" / "quota_config.json"
+
+def get_static_dir() -> Path:
+    """获取静态资源根目录（兼容 PyInstaller 打包与源码开发运行）"""
+    if hasattr(sys, "_MEIPASS"):
+        p = Path(sys._MEIPASS) / "static"
+        if p.exists():
+            return p
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for candidate in [exe_dir / "static", exe_dir / "_internal" / "static"]:
+            if candidate.exists():
+                return candidate
+    return Path(__file__).resolve().parent.parent / "static"
+
+
+def get_config_file() -> Path:
+    """获取持久化配置路径（打包后优先存放在 exe 同级 data/ 目录或 %APPDATA%）"""
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        data_dir = exe_dir / "data"
+        try:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            return data_dir / "quota_config.json"
+        except (PermissionError, OSError):
+            appdata = Path(os.environ.get("APPDATA", Path.home())) / "AntigravityTokenDashboard" / "data"
+            appdata.mkdir(parents=True, exist_ok=True)
+            return appdata / "quota_config.json"
+    return Path(__file__).resolve().parent.parent / "data" / "quota_config.json"
+
+
+STATIC_DIR = get_static_dir()
+CONFIG_FILE = get_config_file()
 
 
 def load_quota_config() -> dict:
-    if CONFIG_FILE.exists():
+    cfg_file = get_config_file()
+    if cfg_file.exists():
         try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            with open(cfg_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -115,7 +146,8 @@ def get_quota_config():
 @app.post("/api/quota-config")
 def save_quota_config(cfg: dict = Body(...)):
     """保存用户手动设置的配额配置"""
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    cfg_file = get_config_file()
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
     now_ts = int(time.time())
     if "calibrated_at" not in cfg:
         cfg["calibrated_at"] = now_ts
@@ -123,7 +155,7 @@ def save_quota_config(cfg: dict = Body(...)):
         cfg["quota_5h"].setdefault("calibrated_at", now_ts)
     if "quota_week" in cfg and isinstance(cfg["quota_week"], dict):
         cfg["quota_week"].setdefault("calibrated_at", now_ts)
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    with open(cfg_file, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return {"success": True, "data": cfg}
 
