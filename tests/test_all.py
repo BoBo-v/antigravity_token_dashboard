@@ -322,6 +322,31 @@ class TestLaunchersAndScripts(unittest.TestCase):
             self.assertLess(len(metrics_text), 64, f"托盘文案超过 Windows 63 字符严格限制: {metrics_text}")
             self.assertIsInstance(is_autostart_enabled(), bool)
 
+    def test_tray_icon_rendering_and_gdi_cleanup(self):
+        """测试托盘原生高质感 Indigo 图标动态渲染与 GDI 句柄释放"""
+        if sys.platform == "win32":
+            from desktop_tray import DesktopTrayManager
+
+            class MockWindow:
+                class Events:
+                    shown = []
+                    closing = []
+                events = Events()
+                uid = "test-uid-icon"
+
+            manager = DesktopTrayManager(MockWindow())
+            icon = manager._create_app_icon()
+            self.assertIsNotNone(icon, "动态生成托盘图标失败")
+            self.assertEqual(icon.Width, 32, "托盘图标宽度应为 32px 高清 ARGB 格式")
+            self.assertEqual(icon.Height, 32, "托盘图标高度应为 32px 高清 ARGB 格式")
+            self.assertIsNotNone(manager._created_hicon, "Win32 GDI HICON 句柄未正确托管")
+            self.assertIsNotNone(manager._tray_icon, "托盘 Icon 实例未正确托管")
+
+            # 测试 GDI 句柄释放与清理
+            manager.dispose()
+            self.assertIsNone(manager._created_hicon, "dispose() 后 GDI HICON 句柄未被置空销毁")
+            self.assertIsNone(manager._tray_icon, "dispose() 后托盘 Icon 实例未被置空销毁")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

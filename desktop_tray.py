@@ -61,6 +61,8 @@ class DesktopTrayManager:
         self.first_minimize = True
         self._running = True
         self._updater_thread = None
+        self._created_hicon = None
+        self._tray_icon = None
 
     def setup(self):
         """挂载 pywebview 事件监听"""
@@ -84,32 +86,87 @@ class DesktopTrayManager:
             print(f"[!] 初始化系统托盘异常: {e}")
 
     def _create_app_icon(self):
-        """生成原生高品质托盘图标"""
+        """生成原生高品质托盘图标（通过 System.Drawing 动态渲染 Indigo 渐变白标）"""
         try:
             import clr
             clr.AddReference("System.Drawing")
             import System.Drawing as Drawing
+            import System.Drawing.Drawing2D as D2D
 
-            # 优先使用窗体原有图标
-            if self.form and self.form.Icon:
-                return self.form.Icon
-
-            # 绘制现代质感圆形图标（紫蓝渐变底色 + 白色 A 标）
-            bmp = Drawing.Bitmap(32, 32)
+            # 32x32 高清 ARGB 画布（完美适配 100%、125%、150%、200% Windows 多 DPI 缩放）
+            bmp = Drawing.Bitmap(32, 32, Drawing.Imaging.PixelFormat.Format32bppArgb)
             g = Drawing.Graphics.FromImage(bmp)
-            g.SmoothingMode = Drawing.Drawing2D.SmoothingMode.AntiAlias
+            g.SmoothingMode = D2D.SmoothingMode.HighQuality
+            g.PixelOffsetMode = D2D.PixelOffsetMode.HighQuality
+            g.InterpolationMode = D2D.InterpolationMode.HighQualityBicubic
 
-            brush = Drawing.SolidBrush(Drawing.Color.FromArgb(99, 102, 241))  # Indigo 600
-            g.FillEllipse(brush, 2, 2, 28, 28)
+            # 1. 构建 iOS/Fluent 风格高质感圆角矩形底座 (Squircle)
+            path = D2D.GraphicsPath()
+            x, y, w, h, r = 1.5, 1.5, 29.0, 29.0, 7.0
+            d = r * 2.0
+            path.AddArc(x, y, d, d, 180.0, 90.0)
+            path.AddArc(x + w - d, y, d, d, 270.0, 90.0)
+            path.AddArc(x + w - d, y + h - d, d, d, 0.0, 90.0)
+            path.AddArc(x, y + h - d, d, d, 90.0, 90.0)
+            path.CloseFigure()
 
-            font = Drawing.Font("Arial", 14, Drawing.FontStyle.Bold)
-            text_brush = Drawing.SolidBrush(Drawing.Color.White)
-            g.DrawString("A", font, text_brush, 7, 5)
+            # 2. 填充深邃科技感 Indigo 渐变 (Indigo 500 #6366f1 -> Indigo 900 #312e81)
+            p1 = Drawing.PointF(1.5, 1.5)
+            p2 = Drawing.PointF(30.5, 30.5)
+            brush = D2D.LinearGradientBrush(
+                p1, p2,
+                Drawing.Color.FromArgb(99, 102, 241),
+                Drawing.Color.FromArgb(49, 46, 129)
+            )
+            g.FillPath(brush, path)
 
+            # 3. 绘制微光玻璃质感高光边缘 (Bevel Edge Highlight)
+            pen_highlight = Drawing.Pen(Drawing.Color.FromArgb(75, 255, 255, 255), 1.0)
+            g.DrawPath(pen_highlight, path)
+
+            # 4. 纯白高对比度 Antigravity 'A' 徽标（矢量 GraphicsPath 填充，零毛边）
+            text_path = D2D.GraphicsPath()
+            try:
+                font_family = Drawing.FontFamily("Segoe UI")
+            except Exception:
+                font_family = Drawing.FontFamily.GenericSansSerif
+
+            sf = Drawing.StringFormat()
+            sf.Alignment = Drawing.StringAlignment.Center
+            sf.LineAlignment = Drawing.StringAlignment.Center
+
+            rect = Drawing.RectangleF(0.0, 0.5, 32.0, 32.0)
+            text_path.AddString("A", font_family, int(Drawing.FontStyle.Bold), 19.0, rect, sf)
+
+            white_brush = Drawing.SolidBrush(Drawing.Color.White)
+            g.FillPath(white_brush, text_path)
+
+            # 5. 立即释放绘制临时资源
+            white_brush.Dispose()
+            sf.Dispose()
+            font_family.Dispose()
+            text_path.Dispose()
+            pen_highlight.Dispose()
+            brush.Dispose()
+            path.Dispose()
             g.Dispose()
-            h_icon = bmp.GetHicon()
-            return Drawing.Icon.FromHandle(h_icon)
-        except Exception:
+
+            # 6. 生成 Win32 GDI 图标句柄并托管在实例变量中
+            self._created_hicon = bmp.GetHicon()
+            bmp.Dispose()
+
+            self._tray_icon = Drawing.Icon.FromHandle(self._created_hicon)
+
+            # 同步为主窗体设置高质感图标
+            if self.form:
+                try:
+                    self.form.Icon = self._tray_icon
+                except Exception:
+                    pass
+
+            return self._tray_icon
+        except Exception as e:
+            print(f"[!] 动态生成托盘图标异常: {e}")
             import System.Drawing as Drawing
             return Drawing.SystemIcons.Application
 
@@ -319,12 +376,7 @@ class DesktopTrayManager:
         """右键菜单彻底退出"""
         self.force_exit = True
         self._running = False
-        if self.notify_icon:
-            try:
-                self.notify_icon.Visible = False
-                self.notify_icon.Dispose()
-            except Exception:
-                pass
+        self.dispose()
         if self.form:
             import clr
             clr.AddReference("System.Windows.Forms")
@@ -332,7 +384,7 @@ class DesktopTrayManager:
             self.form.Invoke(WinForms.MethodInvoker(lambda: self.form.Close()))
 
     def dispose(self):
-        """资源释放"""
+        """资源释放与 GDI 句柄清理，彻底杜绝句柄泄露"""
         self._running = False
         if self.notify_icon:
             try:
@@ -340,3 +392,19 @@ class DesktopTrayManager:
                 self.notify_icon.Dispose()
             except Exception:
                 pass
+            self.notify_icon = None
+
+        if self._tray_icon:
+            try:
+                self._tray_icon.Dispose()
+            except Exception:
+                pass
+            self._tray_icon = None
+
+        if self._created_hicon:
+            try:
+                import ctypes
+                ctypes.windll.user32.DestroyIcon(ctypes.c_void_p(self._created_hicon.ToInt64()))
+            except Exception:
+                pass
+            self._created_hicon = None
