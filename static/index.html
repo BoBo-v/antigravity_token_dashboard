@@ -598,6 +598,19 @@
     .turn-chip strong {
       color: #fff;
     }
+    .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #10b981;
+      box-shadow: 0 0 6px #10b981;
+      display: inline-block;
+      animation: live-pulse 2s infinite ease-in-out;
+    }
+    @keyframes live-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.85); }
+    }
   </style>
 </head>
 <body>
@@ -645,8 +658,11 @@
         </el-button>
 
         <!-- 自动刷新控制 -->
-        <span style="font-size: 13px; color: var(--text-sub);">本地自动刷新:</span>
-        <el-select v-model="autoRefreshSec" size="default" style="width: 110px;" @change="setupAutoRefresh">
+        <span style="font-size: 13px; color: var(--text-sub); display: inline-flex; align-items: center; gap: 6px;">
+          <span v-if="autoRefreshSec > 0" class="live-dot" title="自动刷新常驻中"></span>
+          <span>本地自动刷新:</span>
+        </span>
+        <el-select v-model="autoRefreshSec" size="default" style="width: 110px;" @change="setupAutoRefresh(true)">
           <el-option label="关闭" :value="0"></el-option>
           <el-option label="10 秒" :value="10"></el-option>
           <el-option label="30 秒" :value="30"></el-option>
@@ -1444,7 +1460,8 @@ Five Hour Limit Remaining
         const customDates = ref([]);
         const refreshing = ref(false);
         const tableLoading = ref(false);
-        const autoRefreshSec = ref(0);
+        const savedAutoRefresh = localStorage.getItem('antigravity_auto_refresh_sec');
+        const autoRefreshSec = ref(savedAutoRefresh !== null ? parseInt(savedAutoRefresh, 10) : 10);
         let autoRefreshTimer = null;
         let countdownTimer = null;
 
@@ -1980,9 +1997,10 @@ Five Hour Limit Remaining
         };
 
         // 获取概览数据（指标 + 折线走势 + 模型分布 + 本地配额）
-        const fetchOverview = async () => {
+        const fetchOverview = async (silent = false) => {
           try {
-            let url = `/api/overview?range=${timeRange.value}`;
+            const timestamp = Date.now();
+            let url = `/api/overview?range=${timeRange.value}&_t=${timestamp}`;
             if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
               url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
             }
@@ -2029,10 +2047,13 @@ Five Hour Limit Remaining
         };
 
         // 获取会话列表
-        const fetchSessions = async () => {
-          tableLoading.value = true;
+        const fetchSessions = async (silent = false) => {
+          if (!silent) {
+            tableLoading.value = true;
+          }
           try {
-            let url = `/api/sessions?range=${timeRange.value}&page=${sessionTable.page}&page_size=${sessionTable.page_size}&search=${encodeURIComponent(searchQuery.value)}`;
+            const timestamp = Date.now();
+            let url = `/api/sessions?range=${timeRange.value}&page=${sessionTable.page}&page_size=${sessionTable.page_size}&search=${encodeURIComponent(searchQuery.value)}&_t=${timestamp}`;
             if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
               url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
             }
@@ -2045,12 +2066,14 @@ Five Hour Limit Remaining
           } catch (e) {
             console.error('Fetch sessions error:', e);
           } finally {
-            tableLoading.value = false;
+            if (!silent) {
+              tableLoading.value = false;
+            }
           }
         };
 
-        const fetchData = async () => {
-          await Promise.all([fetchOverview(), fetchSessions()]);
+        const fetchData = async (silent = false) => {
+          await Promise.all([fetchOverview(silent), fetchSessions(silent)]);
         };
 
         // 时间筛选切换
@@ -2090,18 +2113,26 @@ Five Hour Limit Remaining
         };
 
         // 自动刷新逻辑
-        const setupAutoRefresh = () => {
+        const setupAutoRefresh = (notify = true) => {
           if (autoRefreshTimer) {
             clearInterval(autoRefreshTimer);
             autoRefreshTimer = null;
           }
+          try {
+            localStorage.setItem('antigravity_auto_refresh_sec', String(autoRefreshSec.value));
+          } catch (e) {}
+
           if (autoRefreshSec.value > 0) {
             autoRefreshTimer = setInterval(() => {
-              fetchData();
+              fetchData(true);
             }, autoRefreshSec.value * 1000);
-            ElementPlus.ElMessage.info(`已开启本地自动刷新 (每 ${autoRefreshSec.value} 秒)`);
+            if (notify) {
+              ElementPlus.ElMessage.info(`已开启本地自动刷新 (每 ${autoRefreshSec.value} 秒)`);
+            }
           } else {
-            ElementPlus.ElMessage.info('已关闭本地自动刷新');
+            if (notify) {
+              ElementPlus.ElMessage.info('已关闭本地自动刷新');
+            }
           }
         };
 
@@ -2321,6 +2352,8 @@ Five Hour Limit Remaining
 
           window.addEventListener('resize', handleResize);
           await fetchData();
+          // 自动启动本地定时刷新（静默启动，默认 10 秒或沿用用户偏好）
+          setupAutoRefresh(false);
           // 初次加载异步获取官方云端配额
           fetchOfficialUsage(false);
 

@@ -7,6 +7,7 @@ Antigravity Token 聚合分析引擎与数据缓存服务
 
 import io
 import csv
+import time
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta, date
@@ -25,6 +26,7 @@ class TokenScannerService:
         self._summary_meta: Dict[str, Dict[str, Any]] = {}
         self.last_scan_time: Optional[datetime] = None
         self.total_db_count: int = 0
+        self._last_scan_ts: float = 0.0
         self._official_usage_cache: Optional[Dict[str, Any]] = None
         self._official_usage_time: float = 0.0
 
@@ -147,11 +149,14 @@ class TokenScannerService:
             del self._db_cache[p]
 
         self.last_scan_time = datetime.now()
+        self._last_scan_ts = time.time()
 
-    def get_all_turns(self) -> List[Dict[str, Any]]:
-        """获取当前缓存中所有解析好的轮次，按会话去重"""
-        if not self._db_cache:
-            self.scan()
+    def get_all_turns(self, force_scan: bool = False, max_cache_age: float = 3.0) -> List[Dict[str, Any]]:
+        """获取当前缓存中所有解析好的轮次，按会话去重；超过 max_cache_age 自动触发轻量增量扫描"""
+        now = time.time()
+        if force_scan or not self._db_cache or (now - getattr(self, "_last_scan_ts", 0.0) >= max_cache_age):
+            self.scan(force=force_scan)
+
         processed_sessions = set()
         all_turns = []
         for p_str, item in self._db_cache.items():

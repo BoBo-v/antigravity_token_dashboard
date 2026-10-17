@@ -99,12 +99,17 @@ def on_startup():
 
 @app.get("/api/overview")
 def get_overview(
+    response: Response,
     range: str = "today",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    force_scan: bool = False,
 ):
     """获取指定时间范围内的统计指标卡片、时序走势图及模型占比数据"""
-    all_turns = scanner_service.get_all_turns()
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    all_turns = scanner_service.get_all_turns(force_scan=force_scan)
     filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date)
 
     summary = scanner_service.calculate_summary(filtered)
@@ -168,6 +173,7 @@ def get_official_usage(force: bool = False):
 
 @app.get("/api/sessions")
 def get_sessions(
+    response: Response,
     range: str = "today",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -176,6 +182,9 @@ def get_sessions(
     search: str = "",
 ):
     """获取指定时间范围下的会话明细列表（支持分页与搜索）"""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     all_turns = scanner_service.get_all_turns()
     filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date)
     result = scanner_service.get_sessions_table(filtered, page=page, page_size=page_size, search=search)
@@ -186,8 +195,11 @@ def get_sessions(
 
 
 @app.post("/api/refresh")
-def refresh_data():
+def refresh_data(response: Response):
     """手动重新扫描本地所有数据库，更新内存缓存"""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     t0 = time.time()
     scanner_service.scan(force=True)
     cost_ms = round((time.time() - t0) * 1000, 1)

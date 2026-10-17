@@ -188,6 +188,15 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("session_id", text)
         self.assertIn("total_tokens", text)
 
+    def test_api_no_cache_headers(self):
+        """确保接口包含 no-cache 响应头，防止 WebView2/浏览器缓存导致定时刷新不更新"""
+        for endpoint in ["/api/overview", "/api/sessions"]:
+            res = self.client.get(endpoint)
+            self.assertEqual(res.status_code, 200)
+            cc = res.headers.get("Cache-Control", "")
+            self.assertIn("no-cache", cc)
+            self.assertIn("no-store", cc)
+
 
 class TestScannerEngine(unittest.TestCase):
     """4. SQLite 解析与聚合计算核心业务逻辑测试"""
@@ -262,6 +271,20 @@ class TestScannerEngine(unittest.TestCase):
         # 至少包含已知的占位符映射
         first_key = list(MODEL_PLACEHOLDER_MAP.keys())[0]
         self.assertTrue(first_key.startswith("MODEL_PLACEHOLDER_"))
+
+    def test_auto_incremental_rescan(self):
+        """测试超过缓存时限时自动触发轻量扫描并更新 last_scan_time"""
+        # 初次调用
+        self.scanner.get_all_turns()
+        first_scan_ts = self.scanner._last_scan_ts
+        self.assertGreater(first_scan_ts, 0)
+
+        # 模拟缓存过期 (max_cache_age = 0.001 秒)
+        import time
+        time.sleep(0.01)
+        self.scanner.get_all_turns(max_cache_age=0.005)
+        second_scan_ts = self.scanner._last_scan_ts
+        self.assertGreater(second_scan_ts, first_scan_ts, "缓存过期后未自动触发增量扫描更新时间戳")
 
 
 class TestLaunchersAndScripts(unittest.TestCase):
