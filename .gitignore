@@ -42,3 +42,5 @@ temp/
 
 # User local data
 data/quota_config.json
+*.lnk
+

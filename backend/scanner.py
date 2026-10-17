@@ -373,10 +373,12 @@ class TokenScannerService:
         try:
             cmd = [agy_path, "-p", "/usage", "--output-format", "json"]
             startupinfo = None
+            creationflags = 0
             if os.name == "nt":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = 0
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
             res = subprocess.run(
                 cmd,
@@ -384,6 +386,7 @@ class TokenScannerService:
                 text=True,
                 timeout=15,
                 startupinfo=startupinfo,
+                creationflags=creationflags,
                 encoding="utf-8",
                 errors="ignore"
             )

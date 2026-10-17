@@ -26,18 +26,54 @@ except ImportError:
 
 
 def kill_port_owner(port: int = 8765):
-    """如果端口被残留的旧进程占用，自动结束它，保证最新代码生效"""
-    import subprocess
+    """如果端口被残留的旧进程占用，毫秒级清理释放"""
+    import socket
     try:
-        cmd = f'powershell -Command "Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique"'
-        out = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore').strip()
-        if out:
-            pids = [int(p) for p in out.split() if p.isdigit()]
-            for pid in pids:
-                if pid != os.getpid() and pid > 0:
-                    print(f"[*] 发现旧服务进程 (PID {pid}) 占用端口 {port}，正在清理释放...")
-                    subprocess.call(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.08)
+            if s.connect_ex(('127.0.0.1', port)) != 0:
+                return
+    except Exception:
+        pass
+
+    import subprocess
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+            shell=False,
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8', errors='ignore')
+
+        current_pid = os.getpid()
+        killed_any = False
+        for line in out.splitlines():
+            line = line.strip()
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                if len(parts) >= 5 and parts[-1].isdigit():
+                    pid = int(parts[-1])
+                    if pid != current_pid and pid > 0:
+                        subprocess.call(
+                            ["taskkill", "/F", "/PID", str(pid)],
+                            creationflags=creationflags,
+                            startupinfo=startupinfo,
+                            shell=False,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        killed_any = True
+        if killed_any:
+            time.sleep(0.3)
     except Exception:
         pass
 

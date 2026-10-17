@@ -274,6 +274,7 @@ class TestLaunchersAndScripts(unittest.TestCase):
             "start_browser.bat",
             "start_desktop.bat",
             "start_desktop.vbs",
+            "启动大屏(无黑框).vbs",
             "build_exe.bat"
         ]
         for name in launcher_files:
@@ -282,6 +283,16 @@ class TestLaunchersAndScripts(unittest.TestCase):
             raw_bytes = file_path.read_bytes()
             is_ascii = all(b < 128 for b in raw_bytes)
             self.assertTrue(is_ascii, f"启动脚本 {name} 包含非 ASCII 字符，会导致 CMD/WScript 编码损坏")
+
+    def test_kill_port_owner_zero_subprocess(self):
+        """测试端口清理函数在未占用时毫秒级瞬时退出，不调用外部进程"""
+        from desktop import kill_port_owner
+        import time
+        t0 = time.time()
+        # 探测一个极大概率未使用的随机高端端口
+        kill_port_owner(59876)
+        elapsed = time.time() - t0
+        self.assertLess(elapsed, 0.2, f"kill_port_owner 未占用时耗时过长: {elapsed:.3f}s")
 
     def test_desktop_python_compilation(self):
         """确保 desktop.py, desktop_tray.py 和 run.py 可无错误编译"""

@@ -77,11 +77,37 @@ class ServerThread(threading.Thread):
 
 
 def kill_port_owner(port: int = 8765):
-    """如果端口被残留的旧进程占用，毫秒级清理释放"""
-    import subprocess
+    """如果端口被残留的旧进程占用，毫秒级清理释放（静默无黑框）"""
+    import socket
+    # 1. 优先使用 Python 原生 socket 快速探测端口（< 1ms，不创建任何外部进程，杜绝黑框闪烁）
     try:
-        cmd = 'netstat -ano -p tcp'
-        out = subprocess.check_output(cmd, shell=True).decode('utf-8', errors='ignore')
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.08)
+            if s.connect_ex(('127.0.0.1', port)) != 0:
+                # 端口未被占用，秒级直接返回，杜绝任何进程创建
+                return
+    except Exception:
+        pass
+
+    # 2. 仅当端口确实被占用时，才调用系统命令静默结束旧进程
+    import subprocess
+    creationflags = 0
+    startupinfo = None
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+
+    try:
+        out = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+            shell=False,
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8', errors='ignore')
+
         current_pid = os.getpid()
         killed_any = False
         for line in out.splitlines():
@@ -93,13 +119,20 @@ def kill_port_owner(port: int = 8765):
                     if pid_str.isdigit():
                         pid = int(pid_str)
                         if pid != current_pid and pid > 0:
-                            print(f"[*] 发现旧服务进程 (PID {pid}) 占用端口 {port}，正在清理释放...")
-                            subprocess.call(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            subprocess.call(
+                                ["taskkill", "/F", "/PID", str(pid)],
+                                creationflags=creationflags,
+                                startupinfo=startupinfo,
+                                shell=False,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL
+                            )
                             killed_any = True
         if killed_any:
             time.sleep(0.3)
     except Exception:
         pass
+
 
 
 def wait_for_server(url: str, timeout: float = 15.0) -> bool:
