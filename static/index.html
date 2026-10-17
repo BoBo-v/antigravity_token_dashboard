@@ -687,18 +687,32 @@
 
     <div class="main-container">
 
-      <!-- 🔍 第 1 项：时间筛选栏 -->
+      <!-- 🔍 第 1 项：平台与时间多维筛选栏 -->
       <div class="filter-bar">
-        <div class="filter-left">
-          <span class="filter-label">时间范围:</span>
-          <el-radio-group v-model="timeRange" size="default" @change="onRangeChange">
-            <el-radio-button label="today">今日</el-radio-button>
-            <el-radio-button label="yesterday">昨日</el-radio-button>
-            <el-radio-button label="week">本周 (近7天)</el-radio-button>
-            <el-radio-button label="month">本月 (近30天)</el-radio-button>
-            <el-radio-button label="all">历史总计</el-radio-button>
-            <el-radio-button label="custom">自定义日期</el-radio-button>
-          </el-radio-group>
+        <div class="filter-left" style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+          <!-- 平台来源切换 -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="filter-label">工具平台:</span>
+            <el-radio-group v-model="selectedSource" size="default" @change="onSourceChange">
+              <el-radio-button label="all">🌐 全部平台</el-radio-button>
+              <el-radio-button label="antigravity">⚡ Antigravity</el-radio-button>
+              <el-radio-button label="codex">🟢 OpenAI Codex</el-radio-button>
+              <el-radio-button label="claude-code">🟠 Claude Code</el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <!-- 时间范围切换 -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="filter-label">时间范围:</span>
+            <el-radio-group v-model="timeRange" size="default" @change="onRangeChange">
+              <el-radio-button label="today">今日</el-radio-button>
+              <el-radio-button label="yesterday">昨日</el-radio-button>
+              <el-radio-button label="week">本周 (近7天)</el-radio-button>
+              <el-radio-button label="month">本月 (近30天)</el-radio-button>
+              <el-radio-button label="all">历史总计</el-radio-button>
+              <el-radio-button label="custom">自定义日期</el-radio-button>
+            </el-radio-group>
+          </div>
 
           <!-- 自定义日期选择器 -->
           <el-date-picker
@@ -716,7 +730,7 @@
         </div>
 
         <div style="font-size: 13px; color: var(--text-sub); display: flex; gap: 16px; align-items: center;">
-          <span>已扫描 DB: <strong style="color: #fff;">{{ meta.total_dbs || 0 }}</strong> 个</span>
+          <span>已扫描会话源: <strong style="color: #fff;">{{ meta.total_dbs || 0 }}</strong> 个</span>
           <span>筛选匹配轮次: <strong style="color: #6366f1;">{{ meta.matched_turns || 0 }}</strong> 次</span>
           <span>最后更新: <strong style="color: #fff;">{{ meta.last_scan_time || '尚未扫描' }}</strong></span>
         </div>
@@ -734,6 +748,18 @@
           <div class="metric-desc">
             <span>{{ formatNum(summary.total_tokens) }} Tokens</span>
             <span style="margin-left: auto; color: #a855f7;">平均 {{ formatNum(summary.avg_tokens_per_turn) }}/轮</span>
+          </div>
+          <!-- 多平台贡献分布微徽标 -->
+          <div v-if="summary.by_source && Object.keys(summary.by_source).length > 0" style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+            <span v-if="summary.by_source.antigravity" style="font-size: 11px; color: #818cf8; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); padding: 1px 7px; border-radius: 4px;">
+              ⚡ AGY: {{ formatTokenMB(summary.by_source.antigravity.total_tokens) }}
+            </span>
+            <span v-if="summary.by_source.codex" style="font-size: 11px; color: #34d399; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); padding: 1px 7px; border-radius: 4px;">
+              🟢 Codex: {{ formatTokenMB(summary.by_source.codex.total_tokens) }}
+            </span>
+            <span v-if="summary.by_source['claude-code']" style="font-size: 11px; color: #fbbf24; background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); padding: 1px 7px; border-radius: 4px;">
+              🟠 Claude: {{ formatTokenMB(summary.by_source['claude-code'].total_tokens) }}
+            </span>
           </div>
         </div>
 
@@ -1206,7 +1232,14 @@
                 <el-button link type="primary" size="small" style="padding: 0 4px; font-size: 11px;" title="点击复制完整会话 ID" @click.stop="copyText(row.session_id, '会话 ID 已复制')">
                   📋
                 </el-button>
-                <el-tag size="small" type="info" effect="plain" style="margin-left: 4px;">{{ row.source_app }}</el-tag>
+                <el-tag
+                  size="small"
+                  :type="row.source_app === 'codex' ? 'success' : (row.source_app === 'claude-code' ? 'warning' : 'primary')"
+                  effect="light"
+                  style="margin-left: 6px; font-weight: 500;"
+                >
+                  {{ row.source_app === 'codex' ? 'Codex' : (row.source_app === 'claude-code' ? 'Claude' : 'Antigravity') }}
+                </el-tag>
               </div>
             </template>
           </el-table-column>
@@ -1315,7 +1348,16 @@
       <div v-if="currentSession" style="padding: 10px 0;">
         <div style="margin-bottom: 16px; background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155;">
           <div style="font-size: 13px; color: var(--text-sub); display: flex; justify-content: space-between; align-items: center;">
-            <div>会话 ID: <span style="color: #fff; font-family: monospace;">{{ currentSession.session_id }}</span></div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span>会话 ID: <span style="color: #fff; font-family: monospace;">{{ currentSession.session_id }}</span></span>
+              <el-tag
+                size="small"
+                :type="currentSession.source_app === 'codex' ? 'success' : (currentSession.source_app === 'claude-code' ? 'warning' : 'primary')"
+                effect="dark"
+              >
+                {{ currentSession.source_app === 'codex' ? '🟢 OpenAI Codex' : (currentSession.source_app === 'claude-code' ? '🟠 Claude Code' : '⚡ Antigravity') }}
+              </el-tag>
+            </div>
             <el-button size="small" type="primary" plain @click="copyText(currentSession.session_id, '会话 ID 已复制到剪贴板')">
               📋 复制完整 ID
             </el-button>
@@ -1473,6 +1515,7 @@ Five Hour Limit Remaining
     createApp({
       setup() {
         const icons = ElementPlusIconsVue;
+        const selectedSource = ref('all');
         const timeRange = ref('today');
         const customDates = ref([]);
         const refreshing = ref(false);
@@ -2019,7 +2062,7 @@ Five Hour Limit Remaining
         const fetchOverview = async (silent = false) => {
           try {
             const timestamp = Date.now();
-            let url = `/api/overview?range=${timeRange.value}&_t=${timestamp}`;
+            let url = `/api/overview?range=${timeRange.value}&source=${selectedSource.value}&_t=${timestamp}`;
             if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
               url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
             }
@@ -2072,7 +2115,7 @@ Five Hour Limit Remaining
           }
           try {
             const timestamp = Date.now();
-            let url = `/api/sessions?range=${timeRange.value}&page=${sessionTable.page}&page_size=${sessionTable.page_size}&search=${encodeURIComponent(searchQuery.value)}&_t=${timestamp}`;
+            let url = `/api/sessions?range=${timeRange.value}&source=${selectedSource.value}&page=${sessionTable.page}&page_size=${sessionTable.page_size}&search=${encodeURIComponent(searchQuery.value)}&_t=${timestamp}`;
             if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
               url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
             }
@@ -2093,6 +2136,12 @@ Five Hour Limit Remaining
 
         const fetchData = async (silent = false) => {
           await Promise.all([fetchOverview(silent), fetchSessions(silent)]);
+        };
+
+        // 平台来源切换
+        const onSourceChange = () => {
+          sessionTable.page = 1;
+          fetchData();
         };
 
         // 时间筛选切换
@@ -2178,7 +2227,7 @@ Five Hour Limit Remaining
 
         // 导出 CSV
         const exportCsv = () => {
-          let url = `/api/export-csv?range=${timeRange.value}`;
+          let url = `/api/export-csv?range=${timeRange.value}&source=${selectedSource.value}`;
           if (timeRange.value === 'custom' && customDates.value && customDates.value.length === 2) {
             url += `&start_date=${customDates.value[0]}&end_date=${customDates.value[1]}`;
           }
@@ -2451,6 +2500,8 @@ Five Hour Limit Remaining
 
         return {
           icons,
+          selectedSource,
+          onSourceChange,
           timeRange,
           customDates,
           refreshing,

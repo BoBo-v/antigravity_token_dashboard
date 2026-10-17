@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Any
 from collections import defaultdict
 
 from .parser import read_conversation_db, MODEL_PLACEHOLDER_MAP
+from .codex_parser import read_codex_session
+from .claude_parser import read_claude_session
 
 
 class TokenScannerService:
@@ -44,8 +46,28 @@ class TokenScannerService:
                 return p
         return Path.home() / ".gemini"
 
+    def get_codex_root(self) -> Path:
+        """获取 OpenAI Codex 配置与会话根目录"""
+        import os
+        env_val = os.environ.get("CODEX_HOME")
+        if env_val:
+            p = Path(env_val).expanduser()
+            if p.exists():
+                return p
+        return Path.home() / ".codex"
+
+    def get_claude_root(self) -> Path:
+        """获取 Anthropic Claude Code 配置与会话根目录"""
+        import os
+        env_val = os.environ.get("CLAUDE_HOME")
+        if env_val:
+            p = Path(env_val).expanduser()
+            if p.exists():
+                return p
+        return Path.home() / ".claude"
+
     def load_conversation_summaries(self, gemini_root: Path):
-        """读取 conversation_summaries.db 获取每个会话的人类可读标题、工作区与预览"""
+        """读取 conversation_summaries.db 获取每个 Antigravity 会话的人类可读标题、工作区与预览"""
         summaries_path = gemini_root / "antigravity-cli" / "conversation_summaries.db"
         if not summaries_path.exists():
             return
@@ -74,6 +96,62 @@ class TokenScannerService:
         finally:
             conn.close()
 
+    def load_codex_summaries(self, codex_root: Path):
+        """读取 codex-dev.db 获取每个 Codex 线程的标题与工作区"""
+        db_path = codex_root / "sqlite" / "codex-dev.db"
+        if not db_path.exists():
+            return
+        uri = f"{db_path.resolve().as_uri()}?mode=ro"
+        try:
+            conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        except Exception:
+            try:
+                conn = sqlite3.connect(str(db_path), timeout=2.0)
+            except Exception:
+                return
+
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT thread_id, display_title, cwd FROM local_thread_catalog")
+            for tid, title, cwd in cur.fetchall():
+                if tid:
+                    self._summary_meta[tid] = {
+                        "title": title or tid[:12],
+                        "preview": "",
+                        "last_modified_time": "",
+                        "workspace_uris": cwd or ""
+                    }
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    def load_claude_summaries(self, claude_root: Path):
+        """读取 history.jsonl 获取每个 Claude Code 会话的标题与工作区"""
+        import json
+        hist_path = claude_root / "history.jsonl"
+        if not hist_path.exists():
+            return
+        try:
+            with open(hist_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    try:
+                        obj = json.loads(line)
+                        sid = obj.get("sessionId")
+                        disp = obj.get("display")
+                        proj = obj.get("project")
+                        if sid and disp and sid not in self._summary_meta:
+                            self._summary_meta[sid] = {
+                                "title": disp.strip(),
+                                "preview": "",
+                                "last_modified_time": "",
+                                "workspace_uris": proj or ""
+                            }
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     def discover_db_files(self, gemini_root: Path) -> List[Path]:
         """搜寻所有 Antigravity 会话数据库文件"""
         if not gemini_root.exists():
@@ -89,26 +167,58 @@ class TokenScannerService:
             found[str(db_path.resolve())] = db_path
         return sorted(found.values(), key=lambda p: p.stat().st_mtime, reverse=True)
 
+    def discover_codex_files(self, codex_root: Path) -> List[Path]:
+        """搜寻所有 OpenAI Codex 会话 .jsonl.zst 文件"""
+        sessions_dir = codex_root / "sessions"
+        if not sessions_dir.exists():
+            return []
+        found = []
+        for p in sessions_dir.rglob("*.jsonl.zst"):
+            if p.is_file():
+                found.append(p)
+        return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def discover_claude_files(self, claude_root: Path) -> List[Path]:
+        """搜寻所有 Anthropic Claude Code 会话 .jsonl 文件"""
+        projects_dir = claude_root / "projects"
+        if not projects_dir.exists():
+            return []
+        found = []
+        for p in projects_dir.rglob("*.jsonl"):
+            if p.is_file():
+                found.append(p)
+        return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+
     def scan(self, force: bool = False):
-        """执行全量/增量扫描，使用文件 mtime 进行高效缓存"""
+        """执行全量/增量扫描，跨 Antigravity、Codex 与 Claude Code，使用文件 mtime 进行高效缓存"""
         gemini_root = self.get_gemini_root()
-        if not gemini_root.exists():
-            return
+        codex_root = self.get_codex_root()
+        claude_root = self.get_claude_root()
 
-        # 1. 载入会话标题字典
-        self.load_conversation_summaries(gemini_root)
+        # 1. 载入各平台的会话标题与元数据字典
+        if gemini_root.exists():
+            self.load_conversation_summaries(gemini_root)
+        if codex_root.exists():
+            self.load_codex_summaries(codex_root)
+        if claude_root.exists():
+            self.load_claude_summaries(claude_root)
 
-        # 2. 发现所有会话 db
-        db_files = self.discover_db_files(gemini_root)
-        self.total_db_count = len(db_files)
+        # 2. 发现各工具会话文件
+        gemini_files = self.discover_db_files(gemini_root) if gemini_root.exists() else []
+        codex_files = self.discover_codex_files(codex_root) if codex_root.exists() else []
+        claude_files = self.discover_claude_files(claude_root) if claude_root.exists() else []
+
+        self.total_db_count = len(gemini_files) + len(codex_files) + len(claude_files)
 
         current_db_paths = set()
-        for db_path in db_files:
+        title_dict = {k: v["title"] for k, v in self._summary_meta.items()}
+
+        # 2.1 扫描 Antigravity (.db)
+        for db_path in gemini_files:
             p_str = str(db_path.resolve())
             current_db_paths.add(p_str)
             try:
-                st = db_path.stat()
-                mtime = st.st_mtime
+                mtime = db_path.stat().st_mtime
             except Exception:
                 continue
 
@@ -120,11 +230,8 @@ class TokenScannerService:
             # 重新解析
             records = read_conversation_db(db_path)
             session_id = db_path.stem
+            source_app = "antigravity"
 
-            rel_parts = db_path.relative_to(gemini_root).parts
-            source_app = rel_parts[0] if rel_parts else "antigravity"
-
-            # 补全每条记录的 session 基础信息
             meta = self._summary_meta.get(session_id, {})
             session_title = meta.get("title", session_id[:12])
 
@@ -138,6 +245,60 @@ class TokenScannerService:
                 "session_id": session_id,
                 "session_title": session_title,
                 "source_app": source_app,
+                "last_modified": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "records": records,
+                "db_path": p_str
+            }
+
+        # 2.2 扫描 OpenAI Codex (.jsonl.zst)
+        for zst_path in codex_files:
+            p_str = str(zst_path.resolve())
+            current_db_paths.add(p_str)
+            try:
+                mtime = zst_path.stat().st_mtime
+            except Exception:
+                continue
+
+            if not force and p_str in self._db_cache:
+                if self._db_cache[p_str]["mtime"] == mtime:
+                    continue
+
+            records = read_codex_session(zst_path, title_dict)
+            session_id = records[0]["session_id"] if records else zst_path.stem
+            session_title = records[0]["session_title"] if records else session_id[:12]
+
+            self._db_cache[p_str] = {
+                "mtime": mtime,
+                "session_id": session_id,
+                "session_title": session_title,
+                "source_app": "codex",
+                "last_modified": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "records": records,
+                "db_path": p_str
+            }
+
+        # 2.3 扫描 Anthropic Claude Code (.jsonl)
+        for jsonl_path in claude_files:
+            p_str = str(jsonl_path.resolve())
+            current_db_paths.add(p_str)
+            try:
+                mtime = jsonl_path.stat().st_mtime
+            except Exception:
+                continue
+
+            if not force and p_str in self._db_cache:
+                if self._db_cache[p_str]["mtime"] == mtime:
+                    continue
+
+            records = read_claude_session(jsonl_path, title_dict)
+            session_id = records[0]["session_id"] if records else jsonl_path.stem
+            session_title = records[0]["session_title"] if records else session_id[:12]
+
+            self._db_cache[p_str] = {
+                "mtime": mtime,
+                "session_id": session_id,
+                "session_title": session_title,
+                "source_app": "claude-code",
                 "last_modified": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
                 "records": records,
                 "db_path": p_str
@@ -167,9 +328,10 @@ class TokenScannerService:
             all_turns.extend(item["records"])
         return all_turns
 
-    def filter_turns(self, turns: List[Dict[str, Any]], time_range: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
+    def filter_turns(self, turns: List[Dict[str, Any]], time_range: str, start_date: Optional[str] = None, end_date: Optional[str] = None, source: Optional[str] = "all") -> List[Dict[str, Any]]:
         """
-        按时间筛选记录：
+        按时间与工具来源筛选记录：
+        - source: 'all' 全部，或 'antigravity', 'codex', 'claude-code'
         - today: 今日 00:00:00 至今
         - yesterday: 昨日 00:00:00 至 23:59:59
         - week: 最近 7 天
@@ -177,6 +339,9 @@ class TokenScannerService:
         - all: 全部
         - custom: start_date 至 end_date
         """
+        if source and source != "all":
+            turns = [t for t in turns if t.get("source_app") == source]
+
         now = datetime.now()
         today_date = now.date()
         today_str = today_date.strftime("%Y-%m-%d")
@@ -208,7 +373,7 @@ class TokenScannerService:
         return turns
 
     def calculate_summary(self, turns: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """计算 KPI 核心概览统计数据"""
+        """计算 KPI 核心概览统计数据，支持 Antigravity、Codex 和 Claude Code 多源聚合"""
         total_tokens = sum(t["total_tokens"] for t in turns)
         input_tokens = sum(t["input_tokens"] for t in turns)
         cache_read_tokens = sum(t["cache_read_tokens"] for t in turns)
@@ -229,6 +394,22 @@ class TokenScannerService:
 
         valid_durs = [t.get("duration_sec", 0) for t in turns if t.get("duration_sec", 0) > 0]
         avg_duration_sec = round(sum(valid_durs) / len(valid_durs), 2) if valid_durs else 0.0
+
+        # 按工具来源拆分统计
+        by_source_tmp = defaultdict(lambda: {"total_tokens": 0, "turns_count": 0, "_sessions": set()})
+        for t in turns:
+            src = t.get("source_app", "antigravity")
+            by_source_tmp[src]["total_tokens"] += t["total_tokens"]
+            by_source_tmp[src]["turns_count"] += 1
+            by_source_tmp[src]["_sessions"].add(t["session_id"])
+
+        by_source = {}
+        for src, d in by_source_tmp.items():
+            by_source[src] = {
+                "total_tokens": d["total_tokens"],
+                "turns_count": d["turns_count"],
+                "sessions_count": len(d["_sessions"]),
+            }
 
         # 费用估计（根据用户提供的 2026 促销期与 2027 标准期百万 Token 定价标准）
         cost_promo_input = (input_tokens / 1000000) * 0.75
@@ -257,6 +438,7 @@ class TokenScannerService:
             "avg_tokens_per_turn": avg_per_turn,
             "avg_speed_tps": avg_speed_tps,
             "avg_duration_sec": avg_duration_sec,
+            "by_source": by_source,
             "costs": {
                 "exchange_rate": 7.23,
                 "promo": {
@@ -537,8 +719,11 @@ class TokenScannerService:
             })
         return models_list
 
-    def get_sessions_table(self, turns: List[Dict[str, Any]], page: int = 1, page_size: int = 15, search: str = "") -> Dict[str, Any]:
-        """获取按会话聚合的数据列表，支持搜索、排序与分页"""
+    def get_sessions_table(self, turns: List[Dict[str, Any]], page: int = 1, page_size: int = 15, search: str = "", source: Optional[str] = "all") -> Dict[str, Any]:
+        """获取按会话聚合的数据列表，支持来源过滤、搜索、排序与分页"""
+        if source and source != "all":
+            turns = [t for t in turns if t.get("source_app") == source]
+
         session_groups = defaultdict(list)
         for t in turns:
             session_groups[t["session_id"]].append(t)
@@ -586,7 +771,7 @@ class TokenScannerService:
                 "session_id": sid,
                 "title": title,
                 "workspace": workspace,
-                "source_app": s_turns[0].get("source_app", "cli"),
+                "source_app": s_turns[0].get("source_app", "antigravity"),
                 "latest_time": latest_time_str,
                 "latest_ts": latest_ts,
                 "calls": len(s_turns),
@@ -605,12 +790,12 @@ class TokenScannerService:
                 "turns": sorted(s_turns, key=lambda x: x["turn_idx"]),
             })
 
-        # 过滤搜索
+        # 过滤搜索 (支持标题、会话ID、模型名称及工具来源)
         if search and isinstance(search, str) and search.strip():
             q = search.lower().strip()
             rows = [
                 r for r in rows
-                if q in r["title"].lower() or q in r["session_id"].lower() or any(q in m.lower() for m in r["models"])
+                if q in r["title"].lower() or q in r["session_id"].lower() or q in r.get("source_app", "").lower() or any(q in m.lower() for m in r["models"])
             ]
 
         # 按最新活跃时间倒序

@@ -197,6 +197,26 @@ class TestBackendAPI(unittest.TestCase):
             self.assertIn("no-cache", cc)
             self.assertIn("no-store", cc)
 
+    def test_api_multi_source_filtering(self):
+        """测试按工具来源 (all, antigravity, codex, claude-code) 进行过滤的接口契约"""
+        for src in ["all", "antigravity", "codex", "claude-code"]:
+            res = self.client.get(f"/api/overview?range=all&source={src}")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertTrue(data.get("success"))
+            self.assertEqual(data.get("source"), src)
+            self.assertIn("by_source", data.get("summary", {}))
+
+            # 会话列表来源过滤测试
+            s_res = self.client.get(f"/api/sessions?range=all&source={src}&page=1&page_size=5")
+            self.assertEqual(s_res.status_code, 200)
+            s_data = s_res.json()
+            self.assertTrue(s_data.get("success"))
+            if src != "all":
+                for item in s_data["data"]["items"]:
+                    self.assertEqual(item["source_app"], src)
+
+
 
 class TestScannerEngine(unittest.TestCase):
     """4. SQLite 解析与聚合计算核心业务逻辑测试"""
@@ -285,6 +305,92 @@ class TestScannerEngine(unittest.TestCase):
         self.scanner.get_all_turns(max_cache_age=0.005)
         second_scan_ts = self.scanner._last_scan_ts
         self.assertGreater(second_scan_ts, first_scan_ts, "缓存过期后未自动触发增量扫描更新时间戳")
+
+    def test_claude_parser_mock(self):
+        """测试 Claude Code 会话 JSONL 解析与 Token 提取"""
+        import tempfile
+        import json
+        from backend.claude_parser import read_claude_session
+
+        with tempfile.NamedTemporaryFile("w+", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "message": {"content": "测试用户提问"}}) + "\n")
+            f.write(json.dumps({
+                "type": "assistant",
+                "timestamp": "2026-10-17T12:00:00.000Z",
+                "message": {
+                    "id": "msg-123",
+                    "model": "claude-3-7-sonnet",
+                    "usage": {
+                        "input_tokens": 500,
+                        "cache_read_input_tokens": 1200,
+                        "cache_creation_input_tokens": 0,
+                        "output_tokens": 300
+                    }
+                }
+            }) + "\n")
+            tmp_path = Path(f.name)
+
+        try:
+            records = read_claude_session(tmp_path)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["model"], "claude-3-7-sonnet")
+            self.assertEqual(records[0]["input_tokens"], 500)
+            self.assertEqual(records[0]["cache_read_tokens"], 1200)
+            self.assertEqual(records[0]["response_tokens"], 300)
+            self.assertEqual(records[0]["total_tokens"], 2000)
+            self.assertEqual(records[0]["source_app"], "claude-code")
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    def test_codex_parser_mock(self):
+        """测试 OpenAI Codex 会话 .jsonl.zst 解码与递增 Token 提取"""
+        import tempfile
+        import json
+        try:
+            import zstandard as zstd
+        except ImportError:
+            return
+        from backend.codex_parser import read_codex_session
+
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"session_id": "codex-test-sid-123"}}),
+            json.dumps({"type": "turn_context", "payload": {"model": "gpt-5.5"}}),
+            json.dumps({"type": "response_item", "payload": {"role": "user", "content": [{"text": "Codex 测试任务"}]}}),
+            json.dumps({
+                "type": "event_msg",
+                "timestamp": "2026-10-17T12:00:00.000Z",
+                "payload": {
+                    "type": "token_count",
+                    "info": {
+                        "total_token_usage": {"input_tokens": 1000, "cached_input_tokens": 800, "cache_write_input_tokens": 0, "output_tokens": 150, "reasoning_output_tokens": 50, "total_tokens": 1150},
+                        "last_token_usage": {"input_tokens": 1000, "cached_input_tokens": 800, "cache_write_input_tokens": 0, "output_tokens": 150, "reasoning_output_tokens": 50, "total_tokens": 1150}
+                    }
+                }
+            })
+        ]
+        content_bytes = "\n".join(lines).encode("utf-8")
+        cctx = zstd.ZstdCompressor()
+        compressed = cctx.compress(content_bytes)
+
+        with tempfile.NamedTemporaryFile("wb", suffix=".jsonl.zst", delete=False) as f:
+            f.write(compressed)
+            tmp_path = Path(f.name)
+
+        try:
+            records = read_codex_session(tmp_path)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["session_id"], "codex-test-sid-123")
+            self.assertEqual(records[0]["model"], "gpt-5.5")
+            self.assertEqual(records[0]["input_tokens"], 1000)
+            self.assertEqual(records[0]["cache_read_tokens"], 800)
+            self.assertEqual(records[0]["thinking_tokens"], 50)
+            self.assertEqual(records[0]["total_tokens"], 1150)
+            self.assertEqual(records[0]["source_app"], "codex")
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
 
 
 class TestLaunchersAndScripts(unittest.TestCase):

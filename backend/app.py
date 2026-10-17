@@ -103,14 +103,15 @@ def get_overview(
     range: str = "today",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    source: Optional[str] = "all",
     force_scan: bool = False,
 ):
-    """获取指定时间范围内的统计指标卡片、时序走势图及模型占比数据"""
+    """获取指定时间范围与工具来源下的统计指标卡片、时序走势图及模型占比数据"""
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     all_turns = scanner_service.get_all_turns(force_scan=force_scan)
-    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date)
+    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
 
     summary = scanner_service.calculate_summary(filtered)
     trend = scanner_service.calculate_trend(filtered, time_range=range)
@@ -122,6 +123,7 @@ def get_overview(
     return {
         "success": True,
         "range": range,
+        "source": source or "all",
         "meta": {
             "last_scan_time": scanner_service.last_scan_time.strftime("%Y-%m-%d %H:%M:%S") if scanner_service.last_scan_time else "",
             "total_dbs": scanner_service.total_db_count,
@@ -177,17 +179,18 @@ def get_sessions(
     range: str = "today",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    source: Optional[str] = "all",
     page: int = 1,
     page_size: int = 15,
     search: str = "",
 ):
-    """获取指定时间范围下的会话明细列表（支持分页与搜索）"""
+    """获取指定时间范围与工具来源下的会话明细列表（支持分页、搜索与多工具）"""
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     all_turns = scanner_service.get_all_turns()
-    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date)
-    result = scanner_service.get_sessions_table(filtered, page=page, page_size=page_size, search=search)
+    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
+    result = scanner_service.get_sessions_table(filtered, page=page, page_size=page_size, search=search, source=source)
     return {
         "success": True,
         "data": result
@@ -196,7 +199,7 @@ def get_sessions(
 
 @app.post("/api/refresh")
 def refresh_data(response: Response):
-    """手动重新扫描本地所有数据库，更新内存缓存"""
+    """手动重新扫描本地所有数据库（Antigravity、Codex、Claude Code），更新内存缓存"""
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
@@ -206,7 +209,7 @@ def refresh_data(response: Response):
     all_turns = scanner_service.get_all_turns()
     return {
         "success": True,
-        "message": f"刷新成功，扫描 {scanner_service.total_db_count} 个数据库，共 {len(all_turns)} 条轮次，耗时 {cost_ms}ms",
+        "message": f"刷新成功，已扫描 {scanner_service.total_db_count} 个会话源文件，共解析 {len(all_turns)} 条轮次，耗时 {cost_ms}ms",
         "cost_ms": cost_ms,
         "last_scan_time": scanner_service.last_scan_time.strftime("%Y-%m-%d %H:%M:%S") if scanner_service.last_scan_time else "",
     }
@@ -217,13 +220,14 @@ def export_csv(
     range: str = Query("today"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    source: Optional[str] = Query("all"),
 ):
     """导出当前筛选结果为带 UTF-8 BOM 的 CSV 报表"""
     all_turns = scanner_service.get_all_turns()
-    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date)
+    filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
     csv_content = scanner_service.generate_csv_report(filtered)
 
-    filename = f"antigravity_tokens_{range}_{int(time.time())}.csv"
+    filename = f"multi_agent_tokens_{range}_{int(time.time())}.csv"
     return Response(
         content=csv_content,
         media_type="text/csv",
