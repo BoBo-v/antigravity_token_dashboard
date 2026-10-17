@@ -165,6 +165,17 @@ def main():
         background_color="#0b1120",
     )
 
+    # 4. 初始化 Windows 系统托盘（关闭窗口最小化到托盘、悬浮指标提示、右键菜单与开机自启）
+    tray_manager = None
+    if sys.platform == "win32":
+        try:
+            from desktop_tray import DesktopTrayManager
+            tray_manager = DesktopTrayManager(window)
+            tray_manager.setup()
+        except Exception as e:
+            if show_console or debug_mode:
+                print(f"[!] 系统托盘初始化失败（降级运行）: {e}")
+
     try:
         # 默认关闭 debug 避免控制台输出大量事件日志与检查弹框
         webview.start(gui="edgechromium", debug=debug_mode)
@@ -183,8 +194,11 @@ def main():
                     time.sleep(1)
             except KeyboardInterrupt:
                 pass
+    finally:
+        if tray_manager:
+            tray_manager.dispose()
 
-    # 4. 窗口关闭后清理释放端口
+    # 5. 窗口关闭后清理释放端口
     server_thread.stop()
     sys.exit(0)
 

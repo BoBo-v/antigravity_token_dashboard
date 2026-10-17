@@ -284,14 +284,32 @@ class TestLaunchersAndScripts(unittest.TestCase):
             self.assertTrue(is_ascii, f"启动脚本 {name} 包含非 ASCII 字符，会导致 CMD/WScript 编码损坏")
 
     def test_desktop_python_compilation(self):
-        """确保 desktop.py 和 run.py 可无错误编译"""
+        """确保 desktop.py, desktop_tray.py 和 run.py 可无错误编译"""
         import py_compile
-        for script in ["desktop.py", "run.py"]:
+        for script in ["desktop.py", "desktop_tray.py", "run.py"]:
             script_path = BASE_DIR / script
             try:
                 py_compile.compile(str(script_path), doraise=True)
             except py_compile.PyCompileError as e:
                 self.fail(f"{script} 语法编译失败: {e}")
+
+    def test_tray_metrics_and_autostart_logic(self):
+        """测试系统托盘提示文案长度限制与开机自启检查逻辑"""
+        if sys.platform == "win32":
+            from desktop_tray import DesktopTrayManager, is_autostart_enabled
+            # 创建虚拟 window 对象测试
+            class MockWindow:
+                class Events:
+                    shown = []
+                    closing = []
+                events = Events()
+                uid = "test-uid"
+
+            manager = DesktopTrayManager(MockWindow())
+            metrics_text = manager.get_metrics_text()
+            self.assertIsInstance(metrics_text, str)
+            self.assertLess(len(metrics_text), 64, f"托盘文案超过 Windows 63 字符严格限制: {metrics_text}")
+            self.assertIsInstance(is_autostart_enabled(), bool)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ hiddenimports = [
     'webview',
     'clr',
     'pythonnet',
+    'desktop_tray',
 ]
 
 a = Analysis(
