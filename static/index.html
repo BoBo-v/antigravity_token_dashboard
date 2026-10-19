@@ -890,7 +890,10 @@
       <div class="quota-monitor-section">
         <div class="quota-monitor-header">
           <strong style="font-size:18px;">🛡️ 官方订阅配额与本地用量</strong>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <el-button v-if="hasClaudeGptGroup" size="small" text type="info" @click="showClaudeGptQuota = !showClaudeGptQuota">
+              {{ showClaudeGptQuota ? '隐藏 Claude/GPT 配额 ▲' : '显示 Claude/GPT 配额 ▼' }}
+            </el-button>
             <el-button size="small" type="primary" :loading="officialLoading" @click="fetchOfficialUsage(true)">同步官方配额</el-button>
             <el-button size="small" plain @click="openQuotaDialog">手动填报快照</el-button>
           </div>
@@ -898,7 +901,7 @@
         <p style="font-size:12px;color:var(--text-sub);">Antigravity 官方配额按模型组独立统计。以下本地 Token 用量按当前工具筛选，不用于推算订阅余额。</p>
         <p style="font-size:12px;color:var(--text-sub);">官方查询：{{ officialData.fetched_at || '尚未成功查询' }} <span v-if="officialIsStale" style="color:#fbbf24;">（旧快照，请同步）</span></p>
         <p v-if="officialError" style="font-size:12px;color:#fbbf24;">{{ officialError }}</p>
-        <div v-for="group in officialData.groups" :key="group.name" style="margin-bottom:16px;">
+        <div v-for="group in displayedOfficialGroups" :key="group.name" style="margin-bottom:16px;">
           <strong>{{ group.name }}</strong>
           <div class="quota-monitor-grid" style="margin-top:10px;">
             <div class="quota-card" v-for="bucket in group.buckets" :key="bucket.id">
@@ -1391,6 +1394,15 @@ Five Hour Limit Remaining
           return Number.isFinite(resetAt) ? Math.max(0, Math.ceil(resetAt - nowSeconds.value)) : null;
         };
         const bucketResetExpired = bucket => bucketResetSeconds(bucket) === 0;
+        const showClaudeGptQuota = ref(false);
+        const isClaudeOrGptGroup = group => {
+          const name = (group?.name || '').toLowerCase();
+          return name.includes('claude') || name.includes('gpt');
+        };
+        const hasClaudeGptGroup = computed(() => (officialData.groups || []).some(isClaudeOrGptGroup));
+        const displayedOfficialGroups = computed(() => {
+          return (officialData.groups || []).filter(g => showClaudeGptQuota.value || !isClaudeOrGptGroup(g));
+        });
 
         const fetchOfficialUsage = async (force = false) => {
           if (officialLoading.value) return;
@@ -2304,6 +2316,9 @@ Five Hour Limit Remaining
           officialIsStale,
           bucketResetSeconds,
           bucketResetExpired,
+          showClaudeGptQuota,
+          hasClaudeGptGroup,
+          displayedOfficialGroups,
           formatSnapshot,
           officialLoading,
           officialData,

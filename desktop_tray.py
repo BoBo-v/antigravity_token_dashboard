@@ -309,6 +309,9 @@ class DesktopTrayManager:
             alerts = []
             from datetime import datetime
             for group in official.get("groups", []):
+                g_name = (group.get("name") or "").lower()
+                if "claude" in g_name or "gpt" in g_name:
+                    continue
                 for bucket in group.get("buckets", []):
                     if bucket.get("window") != "5h":
                         continue
