@@ -261,29 +261,23 @@ class DesktopTrayManager:
             from backend.app import load_quota_config
 
             all_turns = scanner_service.get_all_turns()
-            quotas = scanner_service.calculate_quotas(all_turns)
             cfg = load_quota_config()
-
-            q5h = quotas.get("quota_5h", {})
-            used_tokens = q5h.get("used_tokens", 0)
-            used_m = used_tokens / 1_000_000
-
-            pct = cfg.get("quota_5h", {}).get("remaining_pct")
-            relief_sec = q5h.get("next_relief_seconds", 0)
-            relief_tokens = q5h.get("next_relief_tokens", 0)
-            relief_m = relief_tokens / 1_000_000
-
-            if relief_sec > 0:
-                m = max(1, relief_sec // 60)
-                if pct is not None:
-                    text = f"⚡ 5H已用:{used_m:.1f}M({pct}%) | ⏳ {m}分后释放{relief_m:.1f}M"
-                else:
-                    text = f"⚡ 5H已用:{used_m:.1f}M | ⏳ {m}分后释放{relief_m:.1f}M"
-            else:
-                if pct is not None:
-                    text = f"⚡ 5H已用:{used_m:.1f}M({pct}%) | 额度充足"
-                else:
-                    text = f"⚡ 5H已用:{used_m:.1f}M | 额度充足"
+            quotas = scanner_service.calculate_quotas(all_turns, custom_quota=cfg, source="antigravity")
+            used_m = quotas["quota_5h"]["used_tokens"] / 1_000_000
+            official = scanner_service.get_official_usage_snapshot()
+            pct = None
+            if official and not official.get("stale"):
+                for group in official.get("groups", []):
+                    for bucket in group.get("buckets", []):
+                        if bucket.get("id") == "gemini-5h":
+                            try:
+                                from datetime import datetime
+                                reset_at = datetime.fromisoformat(bucket["reset_time"].replace("Z", "+00:00")).timestamp()
+                                if reset_at > time.time():
+                                    pct = bucket.get("remaining_pct")
+                            except (KeyError, ValueError, TypeError):
+                                pass
+            text = f"AGY近5H用量:{used_m:.1f}M | 官方Gemini剩余:{pct}%" if pct is not None else f"AGY近5H用量:{used_m:.1f}M | 官方配额待查询"
 
             # Windows NotifyIcon.Text 严格上限 63 字符
             return text[:63]
@@ -309,24 +303,24 @@ class DesktopTrayManager:
             from backend.scanner import scanner_service
             from backend.app import load_quota_config
 
-            all_turns = scanner_service.get_all_turns()
-            quotas = scanner_service.calculate_quotas(all_turns)
-            cfg = load_quota_config()
-
-            q5h = quotas.get("quota_5h", {})
-            used_tokens = q5h.get("used_tokens", 0)
-            pct = cfg.get("quota_5h", {}).get("remaining_pct")
-
-            is_exhausted = False
-            alert_msg = ""
-            if pct is not None and pct <= 10:
-                is_exhausted = True
-                alert_msg = f"当前 5H 剩余额度仅剩 {pct}%（已用 {used_tokens / 1_000_000:.1f}M Tokens），请注意降频或切换模型！"
-            elif pct is None:
-                limit = cfg.get("quota_5h", {}).get("limit_tokens", 15_000_000)
-                if limit > 0 and (used_tokens / limit) >= 0.9:
-                    is_exhausted = True
-                    alert_msg = f"当前 5H 消耗已达 {used_tokens / 1_000_000:.1f}M（占预估上限 {used_tokens / limit * 100:.0f}%），接近限额临界！"
+            official = scanner_service.get_official_usage_snapshot()
+            if not official or official.get("stale"):
+                return
+            alerts = []
+            from datetime import datetime
+            for group in official.get("groups", []):
+                for bucket in group.get("buckets", []):
+                    if bucket.get("window") != "5h":
+                        continue
+                    try:
+                        reset_at = datetime.fromisoformat(bucket["reset_time"].replace("Z", "+00:00")).timestamp()
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                    pct = bucket.get("remaining_pct")
+                    if reset_at > now and pct is not None and pct <= 10:
+                        alerts.append(f"{group['name']}: 剩余 {pct}%")
+            is_exhausted = bool(alerts)
+            alert_msg = "；".join(alerts)
 
             if is_exhausted and self.notify_icon:
                 import clr

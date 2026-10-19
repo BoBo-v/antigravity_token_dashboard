@@ -186,6 +186,18 @@
       color: #cbd5e1;
     }
 
+    .quota-calib-badge {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(244, 63, 94, 0.15);
+      color: #f43f5e;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      font-feature-settings: "tnum";
+    }
+
     .quota-status-rows {
       margin-top: 14px;
       background: rgba(15, 23, 42, 0.6);
@@ -641,7 +653,7 @@
             <el-tag size="small" type="primary" effect="dark" round>Desktop Live</el-tag>
           </div>
           <div style="font-size: 12px; color: var(--text-sub);">
-            5H滑动释放监控 + 自然周配额 + 真实 Token 深度解析与费用预估
+            本地 Token 用量 + 官方配额快照 + 按模型单价估算
           </div>
         </div>
       </div>
@@ -707,8 +719,8 @@
             <el-radio-group v-model="timeRange" size="default" @change="onRangeChange">
               <el-radio-button label="today">今日</el-radio-button>
               <el-radio-button label="yesterday">昨日</el-radio-button>
-              <el-radio-button label="week">本周 (近7天)</el-radio-button>
-              <el-radio-button label="month">本月 (近30天)</el-radio-button>
+              <el-radio-button label="week">近7天</el-radio-button>
+              <el-radio-button label="month">近30天</el-radio-button>
               <el-radio-button label="all">历史总计</el-radio-button>
               <el-radio-button label="custom">自定义日期</el-radio-button>
             </el-radio-group>
@@ -852,300 +864,70 @@
       <!-- 💰 第 3 项：费用估计面板（折叠，默认收起不展开） -->
       <div class="cost-estimation-section" :class="{ 'is-collapsed': costSectionCollapsed }">
         <div class="cost-header" style="cursor: pointer;" @click="costSectionCollapsed = !costSectionCollapsed">
-          <div class="cost-title">
-            <span style="font-size: 18px;">💰</span>
-            <span>API 消耗费用预估与 Prompt Caching 节省分析</span>
-            <!-- 折叠时显示的精炼预览 -->
-            <span v-if="costSectionCollapsed" class="cost-collapsed-preview">
-              预估: <strong style="color: #fbbf24; margin-left: 4px;">{{ currentCost.symbol }} {{ currentCost.total }}</strong>
-              <span style="color: rgba(255,255,255,0.25); margin: 0 8px;">|</span>
-              缓存已省: <strong style="color: #34d399; margin-left: 4px;">{{ currentCost.symbol }} {{ currentCost.saved }}</strong>
-              <span style="color: #38bdf8; margin-left: 6px; font-size: 11px;">(-{{ currentCost.savedPercent }}%)</span>
-            </span>
-            <el-popover placement="bottom-start" :width="480" trigger="hover" v-if="!costSectionCollapsed">
-              <template #reference>
-                <el-button link type="primary" size="small" style="margin-left: 8px;" @click.stop>
-                  <el-icon><component :is="icons.QuestionFilled" /></el-icon> 计费标准对照表
-                </el-button>
-              </template>
-              <div style="font-size: 13px; line-height: 1.6; color: #cbd5e1;">
-                <div style="font-weight: 700; margin-bottom: 8px; color: #fff;">📊 百万 Token (1M Tokens) 计费规则对照</div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
-                  <thead>
-                    <tr style="border-bottom: 1px solid #475569; color: #94a3b8;">
-                      <th style="padding: 4px 6px;">计费项目</th>
-                      <th style="padding: 4px 6px; color: #38bdf8;">促销期 (2026年底前)</th>
-                      <th style="padding: 4px 6px; color: #fbbf24;">标准期 (2027年起)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr style="border-bottom: 1px solid #334155;">
-                      <td style="padding: 4px 6px;">标准未缓存输入</td>
-                      <td style="padding: 4px 6px;">$0.75 / 1M</td>
-                      <td style="padding: 4px 6px;">$1.50 / 1M</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #334155;">
-                      <td style="padding: 4px 6px;">缓存命中输入</td>
-                      <td style="padding: 4px 6px; color: #34d399;">$0.0375 / 1M (-95%)</td>
-                      <td style="padding: 4px 6px; color: #34d399;">$0.075 / 1M (-95%)</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #334155;">
-                      <td style="padding: 4px 6px;">缓存存储 (Storage)</td>
-                      <td style="padding: 4px 6px;">$0.50 / 小时</td>
-                      <td style="padding: 4px 6px;">$1.00 / 小时</td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 4px 6px;">输出 / 思考 Token</td>
-                      <td style="padding: 4px 6px;">$3.75 / 1M</td>
-                      <td style="padding: 4px 6px;">$7.50 / 1M</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">注：参考汇率 USD/CNY ≈ 7.23。费用为模型商业 API 官方等价估算值，订阅包月用户无需额外按量付费。</div>
-              </div>
-            </el-popover>
+          <div class="cost-title"><span>💰 按模型单价估算</span>
+            <span class="cost-collapsed-preview">{{ currentCost.symbol }} {{ currentCost.total }}</span>
           </div>
-
-          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;" @click.stop>
-            <!-- 计费阶段切换 (展开时显示) -->
-            <div v-show="!costSectionCollapsed" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <el-radio-group v-model="pricingTier" size="small">
-                <el-radio-button label="promo">🎉 促销期 (2026年底前)</el-radio-button>
-                <el-radio-button label="standard">💼 标准期 (2027年起)</el-radio-button>
-              </el-radio-group>
-
-              <!-- 币种切换 -->
-              <el-radio-group v-model="currency" size="small">
-                <el-radio-button label="USD">美元 ($)</el-radio-button>
-                <el-radio-button label="CNY">人民币 (¥)</el-radio-button>
-              </el-radio-group>
-            </div>
-
-            <!-- 折叠/展开按钮 -->
-            <el-button
-              type="warning"
-              plain
-              size="small"
-              @click="costSectionCollapsed = !costSectionCollapsed"
-            >
-              {{ costSectionCollapsed ? '展开费用明细 ▼' : '收起费用明细 ▲' }}
-            </el-button>
+          <div style="display:flex;gap:10px;align-items:center;" @click.stop>
+            <el-radio-group v-model="currency" size="small"><el-radio-button label="USD">美元</el-radio-button><el-radio-button label="CNY">人民币</el-radio-button></el-radio-group>
+            <el-button size="small" type="primary" plain @click="openPricingDialog">配置模型单价</el-button>
+            <el-button size="small" @click="costSectionCollapsed = !costSectionCollapsed">{{ costSectionCollapsed ? '展开明细' : '收起明细' }}</el-button>
           </div>
         </div>
-
-        <!-- 展开内容区 -->
         <div v-show="!costSectionCollapsed">
+          <p style="color:var(--text-sub);font-size:12px;">按各工具、模型配置的 USD / 百万 Token 单价估算；不含缓存存储费及阶梯价格。参考汇率：{{ summary.costs.exchange_rate || 7.23 }}。</p>
+          <p v-if="summary.costs.unpriced_turns" style="color:#fbbf24;">{{ summary.costs.unpriced_turns }} 条记录未配置价格，尚未计入费用。{{ summary.costs.priced_turns ? '当前金额仅为已定价部分。' : '请先配置模型单价。' }}</p>
           <div class="cost-grid">
-            <!-- 预估总费用 -->
-            <div class="cost-subcard" style="border-left: 3px solid #f59e0b;">
-              <div class="cost-subcard-title">
-                <span>当前区间预估总费用</span>
-                <el-tag size="small" type="warning" effect="plain">{{ pricingTier === 'promo' ? '优惠价' : '标准价' }}</el-tag>
-              </div>
-              <div class="cost-subcard-val" style="color: #fbbf24;">
-                {{ currentCost.symbol }} {{ currentCost.total }}
-              </div>
-              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
-                {{ currency === 'USD' ? '≈ ¥' + (Number(currentCost.total) * 7.23).toFixed(2) : '≈ $' + (Number(currentCost.total) / 7.23).toFixed(4) }}
-              </div>
-            </div>
-
-            <!-- 未缓存输入费用 -->
-            <div class="cost-subcard" style="border-left: 3px solid #06b6d4;">
-              <div class="cost-subcard-title">
-                <span>未缓存新增输入</span>
-                <span>{{ pricingTier === 'promo' ? '$0.75/1M' : '$1.50/1M' }}</span>
-              </div>
-              <div class="cost-subcard-val" style="color: #38bdf8;">
-                {{ currentCost.symbol }} {{ currentCost.input }}
-              </div>
-              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
-                {{ formatTokenMB(summary.input_tokens) }} ({{ formatNum(summary.input_tokens) }} Tokens)
-              </div>
-            </div>
-
-            <!-- 缓存读取费用 -->
-            <div class="cost-subcard" style="border-left: 3px solid #10b981;">
-              <div class="cost-subcard-title">
-                <span>Prompt 缓存命中费</span>
-                <span style="color: #34d399;">仅原价 5%</span>
-              </div>
-              <div class="cost-subcard-val" style="color: #34d399;">
-                {{ currentCost.symbol }} {{ currentCost.cache }}
-              </div>
-              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
-                {{ formatTokenMB(summary.cache_read_tokens) }} ({{ formatNum(summary.cache_read_tokens) }} Tokens)
-              </div>
-            </div>
-
-            <!-- 输出与思考费用 -->
-            <div class="cost-subcard" style="border-left: 3px solid #a855f7;">
-              <div class="cost-subcard-title">
-                <span>输出与思考推理费</span>
-                <span>{{ pricingTier === 'promo' ? '$3.75/1M' : '$7.50/1M' }}</span>
-              </div>
-              <div class="cost-subcard-val" style="color: #c084fc;">
-                {{ currentCost.symbol }} {{ currentCost.output }}
-              </div>
-              <div style="font-size: 11px; color: var(--text-sub); margin-top: 4px;">
-                {{ formatTokenMB(summary.total_output_tokens) }} ({{ formatNum(summary.total_output_tokens) }} Tokens)
-              </div>
-            </div>
+            <div class="cost-subcard"><div class="cost-subcard-title">已定价部分合计</div><div class="cost-subcard-val">{{ currentCost.symbol }} {{ currentCost.total }}</div></div>
+            <div class="cost-subcard"><div class="cost-subcard-title">未缓存输入</div><div class="cost-subcard-val">{{ currentCost.symbol }} {{ currentCost.input }}</div><div>{{ formatNum(summary.input_tokens) }} Tokens</div></div>
+            <div class="cost-subcard"><div class="cost-subcard-title">缓存读取</div><div class="cost-subcard-val">{{ currentCost.symbol }} {{ currentCost.cache }}</div><div>{{ formatNum(summary.cache_read_tokens) }} Tokens</div></div>
+            <div class="cost-subcard"><div class="cost-subcard-title">缓存写入</div><div class="cost-subcard-val">{{ currentCost.symbol }} {{ currentCost.write }}</div><div>{{ formatNum(summary.cache_write_tokens) }} Tokens</div></div>
+            <div class="cost-subcard"><div class="cost-subcard-title">输出（含思考）</div><div class="cost-subcard-val">{{ currentCost.symbol }} {{ currentCost.output }}</div><div>{{ formatNum(summary.total_output_tokens) }} Tokens</div></div>
           </div>
-
-          <!-- 缓存节省横幅 -->
-          <div class="cost-savings-banner">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 18px;">💡</span>
-              <span>
-                <strong>Prompt 缓存节省效益：</strong>
-                通过上下文 Prompt Caching 自动命中，本次筛选范围已为您节省约
-                <strong style="color: #34d399; font-size: 15px;">{{ currentCost.symbol }} {{ currentCost.saved }}</strong>
-                (输入端平均节省 <strong style="color: #38bdf8;">{{ summary.cache_hit_rate }}%</strong>)！
-              </span>
-            </div>
-            <el-tag size="small" type="success" effect="dark">
-              🚀 成本缩减 {{ currentCost.savedPercent }}%
-            </el-tag>
-          </div>
+          <p style="color:#34d399;">按已配置单价估算，缓存读取节省：{{ currentCost.symbol }} {{ currentCost.saved }}。</p>
         </div>
       </div>
 
-      <!-- 🛡️ 第 4 项：5小时滑动释放 & 自然周限额双核心监控大屏 -->
       <div class="quota-monitor-section">
         <div class="quota-monitor-header">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 18px; font-weight: 800; color: #fff;">🛡️ 5小时滑动释放 & 自然周限额监控中心</span>
-            <el-tag size="small" type="success" effect="dark">本地 SQLite 离线秒级响应</el-tag>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 12px; color: #94a3b8;">
-              上次本地扫描: <strong style="color: #60a5fa;">{{ meta.last_scan_time || '刚刚' }}</strong>
-            </span>
-            <el-button size="small" type="success" plain :icon="icons.DocumentCopy" @click="quickPasteFromClipboard">
-              📋 智能粘贴
-            </el-button>
-            <el-button size="small" type="warning" plain :icon="icons.Edit" @click="openQuotaDialog">
-              ✏️ 校准/填报配额
-            </el-button>
+          <strong style="font-size:18px;">🛡️ 官方订阅配额与本地用量</strong>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <el-button size="small" type="primary" :loading="officialLoading" @click="fetchOfficialUsage(true)">同步官方配额</el-button>
+            <el-button size="small" plain @click="openQuotaDialog">手动填报快照</el-button>
           </div>
         </div>
-
+        <p style="font-size:12px;color:var(--text-sub);">Antigravity 官方配额按模型组独立统计。以下本地 Token 用量按当前工具筛选，不用于推算订阅余额。</p>
+        <p style="font-size:12px;color:var(--text-sub);">官方查询：{{ officialData.fetched_at || '尚未成功查询' }} <span v-if="officialIsStale" style="color:#fbbf24;">（旧快照，请同步）</span></p>
+        <p v-if="officialError" style="font-size:12px;color:#fbbf24;">{{ officialError }}</p>
+        <div v-for="group in officialData.groups" :key="group.name" style="margin-bottom:16px;">
+          <strong>{{ group.name }}</strong>
+          <div class="quota-monitor-grid" style="margin-top:10px;">
+            <div class="quota-card" v-for="bucket in group.buckets" :key="bucket.id">
+              <div class="quota-card-title">{{ bucket.name || bucket.window }}</div>
+              <div class="quota-card-val-row"><span>{{ officialIsStale ? '上次查询剩余' : '官方剩余快照' }}</span><span class="quota-card-pct" :style="{color:getRemainingColor(bucket.remaining_pct)}">{{ bucketResetExpired(bucket) ? '待重新查询' : bucket.remaining_pct + '%' }}</span></div>
+              <el-progress v-if="!bucketResetExpired(bucket)" :percentage="bucket.remaining_pct" :show-text="false" :color="getRemainingColor(bucket.remaining_pct)"></el-progress>
+              <div style="font-size:12px;color:var(--text-sub);margin-top:10px;">官方重置：{{ formatIsoTime(bucket.reset_time) || '未提供' }}</div>
+              <div style="font-size:12px;margin-top:6px;">{{ bucketResetSeconds(bucket) == null ? '未提供重置时间' : (bucketResetExpired(bucket) ? '已到重置时间，请同步' : formatCountdownLive(bucketResetSeconds(bucket))) }}</div>
+            </div>
+          </div>
+        </div>
         <div class="quota-monitor-grid">
-          <!-- 5小时滑动窗口卡片 -->
-          <div class="quota-card" style="border-top: 3px solid #38bdf8;">
-            <div>
-              <div class="quota-card-title">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span>⏱️ 5小时滑动窗口 (5H Rolling Window)</span>
-                  <el-tag size="small" type="info" effect="plain">{{ quotas.quota_5h.window_start }} ~ {{ quotas.quota_5h.window_end }}</el-tag>
-                </div>
-                <el-button link type="primary" size="small" @click="openQuotaDialog">修改</el-button>
-              </div>
-
-              <div class="quota-card-val-row">
-                <span class="quota-info-tag">当前5H剩余额度 (校准):</span>
-                <span class="quota-card-pct" :style="{ color: getRemainingColor(customQuota.quota_5h.remaining_pct) }">
-                  剩余 {{ customQuota.quota_5h.remaining_pct }}%
-                </span>
-              </div>
-
-              <!-- 进度条 -->
-              <el-progress
-                :percentage="Number(customQuota.quota_5h.remaining_pct)"
-                :stroke-width="10"
-                :color="getRemainingColor(customQuota.quota_5h.remaining_pct)"
-                :show-text="false"
-              ></el-progress>
-            </div>
-
-            <div class="quota-status-rows">
-              <div class="quota-status-row">
-                <span style="color: #cbd5e1;">📊 过去 5H 真实消耗：</span>
-                <span style="color: #38bdf8; font-weight: 700;">{{ formatTokenMB(quotas.quota_5h.used_tokens) }} ({{ formatNum(quotas.quota_5h.used_tokens) }} Tokens · {{ quotas.quota_5h.calls }} 轮调用)</span>
-              </div>
-              <div class="quota-status-row" v-if="quotas.quota_5h.next_relief_seconds > 0">
-                <span style="color: #fbbf24; display: flex; align-items: center;">
-                  <span class="live-pulse-dot" style="background: #fbbf24; box-shadow: 0 0 6px #fbbf24;"></span>
-                  <span>⏳ 下批额度释放倒计时：</span>
-                </span>
-                <span style="color: #fbbf24; font-weight: 800; font-family: monospace; font-size: 14px;">
-                  {{ formatCountdownLive(reliefCountdown) }} (预计释放 ≈ {{ formatTokenMB(quotas.quota_5h.next_relief_tokens) }})
-                </span>
-              </div>
-              <div class="quota-status-row" v-else>
-                <span style="color: #94a3b8;">⏳ 下批额度释放：</span>
-                <span style="color: #34d399;">暂无积压消耗（额度充裕）</span>
-              </div>
-              <div class="quota-status-row">
-                <span style="color: #c084fc; display: flex; align-items: center;">
-                  <span class="live-pulse-dot" style="background: #c084fc; box-shadow: 0 0 6px #c084fc;"></span>
-                  <span>🎯 5H重置倒计时：</span>
-                </span>
-                <span style="color: #c084fc; font-weight: 800; font-family: monospace; font-size: 14px;">
-                  {{ formatCountdownLive(manual5hCountdown) }}
-                  <span v-if="customQuota.quota_5h.reset_time_str" style="font-size: 11px; font-weight: normal; color: #94a3b8; margin-left: 4px;">
-                    ({{ customQuota.quota_5h.reset_time_str }})
-                  </span>
-                </span>
-              </div>
-            </div>
+          <div class="quota-card">
+            <div class="quota-card-title">⏱️ 近 5 小时本地 Token 用量 · {{ quotas.quota_5h.window_start }} ~ {{ quotas.quota_5h.window_end }}</div>
+            <div class="quota-card-pct" style="color:#38bdf8;">{{ formatTokenMB(quotas.quota_5h.used_tokens) }}</div>
+            <p>{{ formatNum(quotas.quota_5h.used_tokens) }} Tokens · {{ quotas.quota_5h.calls }} 条用量记录</p>
+            <p v-if="quotas.quota_5h.next_relief_seconds > 0" style="font-size:12px;color:var(--text-sub);">最早记录将在 {{ formatCountdownLive(reliefCountdown) }} 后移出窗口，移出 {{ formatNum(quotas.quota_5h.next_relief_tokens) }} Tokens。</p>
+            <p style="font-size:12px;color:var(--text-sub);">记录移出窗口不代表官方额度恢复。</p>
           </div>
-
-          <!-- 自然周限额卡片 -->
-          <div class="quota-card" style="border-top: 3px solid #a855f7;">
-            <div>
-              <div class="quota-card-title">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span>📅 自然周限额 (Weekly Limit)</span>
-                  <el-tag size="small" type="info" effect="plain">{{ quotas.quota_week.monday_date }} 至今</el-tag>
-                </div>
-                <el-button link type="primary" size="small" @click="openQuotaDialog">修改</el-button>
-              </div>
-
-              <div class="quota-card-val-row">
-                <span class="quota-info-tag">当前周剩余额度 (校准):</span>
-                <span class="quota-card-pct" :style="{ color: getRemainingColor(customQuota.quota_week.remaining_pct) }">
-                  剩余 {{ customQuota.quota_week.remaining_pct }}%
-                </span>
-              </div>
-
-              <!-- 进度条 -->
-              <el-progress
-                :percentage="Number(customQuota.quota_week.remaining_pct)"
-                :stroke-width="10"
-                :color="getRemainingColor(customQuota.quota_week.remaining_pct)"
-                :show-text="false"
-              ></el-progress>
-            </div>
-
-            <div class="quota-status-rows">
-              <div class="quota-status-row">
-                <span style="color: #cbd5e1;">📊 本周累计真实消耗：</span>
-                <span style="color: #a855f7; font-weight: 700;">{{ formatTokenMB(quotas.quota_week.used_tokens) }} ({{ formatNum(quotas.quota_week.used_tokens) }} Tokens · {{ quotas.quota_week.calls }} 轮调用)</span>
-              </div>
-              <div class="quota-status-row">
-                <span style="color: #f59e0b;">🔥 过去 7 天日均消耗：</span>
-                <span style="color: #fbbf24; font-weight: 700;">{{ formatTokenMB(quotas.quota_week.daily_burn_rate) }}/天</span>
-              </div>
-              <div class="quota-status-row">
-                <span style="color: #38bdf8; display: flex; align-items: center;">
-                  <span class="live-pulse-dot" style="background: #38bdf8; box-shadow: 0 0 6px #38bdf8;"></span>
-                  <span>🔄 自然周重置倒计时：</span>
-                </span>
-                <span style="color: #38bdf8; font-weight: 800; font-family: monospace; font-size: 14px;">
-                  {{ formatCountdownLive(manualWeekCountdown) }}
-                  <span v-if="customQuota.quota_week.reset_time_str" style="font-size: 11px; font-weight: normal; color: #94a3b8; margin-left: 4px;">
-                    ({{ customQuota.quota_week.reset_time_str }})
-                  </span>
-                </span>
-              </div>
-            </div>
+          <div class="quota-card">
+            <div class="quota-card-title">📅 本周本地 Token 用量 · {{ quotas.quota_week.monday_date }} 至今</div>
+            <div class="quota-card-pct" style="color:#a855f7;">{{ formatTokenMB(quotas.quota_week.used_tokens) }}</div>
+            <p>{{ formatNum(quotas.quota_week.used_tokens) }} Tokens · {{ quotas.quota_week.calls }} 条用量记录</p>
+            <p style="font-size:12px;color:var(--text-sub);">近 7 天：{{ formatTokenMB(quotas.quota_week.tokens_7d_rolling) }}；日均 {{ formatTokenMB(quotas.quota_week.daily_burn_rate) }}。</p>
           </div>
         </div>
+        <p style="font-size:12px;color:var(--text-sub);margin-top:16px;">手动填报的 Antigravity 配额快照：5H {{ formatSnapshot('quota_5h') }}；周配额 {{ formatSnapshot('quota_week') }}。到期后需重新查询或填报。</p>
       </div>
 
-      <!-- 📈 第 5 项：图表区 (走势图全宽 + 默认折叠模型消耗分布占比) -->
       <div class="trend-card">
         <div class="chart-header">
           <div class="chart-title">
@@ -1271,7 +1053,7 @@
 
           <el-table-column label="提示词 (未缓+缓存)" min-width="150" align="right">
             <template #default="{ row }">
-              <div style="color: #fff; font-weight: 600;">{{ formatNum(row.input_tokens + row.cache_read_tokens) }}</div>
+              <div style="color: #fff; font-weight: 600;">{{ formatNum(row.input_tokens + row.cache_read_tokens + (row.cache_write_tokens || 0)) }}</div>
               <div style="font-size: 11px; color: #06b6d4;">未缓: {{ formatNum(row.input_tokens) }}</div>
             </template>
           </el-table-column>
@@ -1294,17 +1076,17 @@
             </template>
           </el-table-column>
 
-          <el-table-column prop="cost_promo_usd" label="预估费用" min-width="130" align="right" sortable>
+          <el-table-column prop="cost_usd" label="预估费用" min-width="130" align="right" sortable>
             <template #default="{ row }">
               <el-tooltip placement="top">
                 <template #content>
-                  <div>促销期: ${{ row.cost_promo_usd }} (≈ ¥{{ row.cost_promo_cny }})</div>
-                  <div>标准期: ${{ row.cost_std_usd }} (≈ ¥{{ (row.cost_std_usd * 7.23).toFixed(2) }})</div>
-                  <div style="color: #34d399;">Prompt 缓存已省: ${{ row.cost_saved_usd }}</div>
+                  <div>按各工具、模型配置的参考单价估算。</div>
+                  <div v-if="row.unpriced_turns">{{ row.unpriced_turns }} 条记录未配置价格，未计入金额。</div>
+                  <div v-if="row.cost_saved_usd != null" style="color: #34d399;">缓存读取节省: ${{ row.cost_saved_usd }}</div>
                 </template>
                 <div>
                   <div style="color: #fbbf24; font-weight: 700; font-family: monospace;">{{ formatSessionCost(row) }}</div>
-                  <div style="font-size: 11px; color: #34d399;">省 {{ currency === 'USD' ? '$' : '¥' }}{{ (row.cost_saved_usd * (currency === 'USD' ? 1 : 7.23)).toFixed(3) }}</div>
+                  <div v-if="row.cost_saved_usd != null" style="font-size: 11px; color: #34d399;">省 {{ currency === 'USD' ? '$' : '¥' }}{{ (row.cost_saved_usd * (currency === 'USD' ? 1 : (summary.costs.exchange_rate || 7.23))).toFixed(5) }}</div>
                 </div>
               </el-tooltip>
             </template>
@@ -1397,7 +1179,7 @@
 
           <div class="turn-chips">
             <span class="turn-chip">输入: <strong>{{ formatNum(turn.input_tokens) }}</strong></span>
-            <span class="turn-chip">缓存读: <strong>{{ formatNum(turn.cache_read_tokens) }}</strong></span>
+            <span class="turn-chip">缓存读: <strong>{{ formatNum(turn.cache_read_tokens) }}</strong></span><span class="turn-chip">缓存写: <strong>{{ formatNum(turn.cache_write_tokens) }}</strong></span>
             <span class="turn-chip" style="color: #c084fc;">思考: <strong>{{ formatNum(turn.thinking_tokens) }}</strong></span>
             <span class="turn-chip" style="color: #fbbf24;">回复: <strong>{{ formatNum(turn.response_tokens) }}</strong></span>
             <span class="turn-chip" style="color: #34d399;" v-if="turn.saved_promo_usd > 0">已省: <strong>${{ turn.saved_promo_usd }}</strong></span>
@@ -1408,6 +1190,18 @@
     </el-drawer>
 
     <!-- ✏️ 配额手动校准与智能识别对话框 -->
+    <el-dialog v-model="pricingDialogVisible" title="按工具与模型配置参考单价" width="95%" style="max-width:1100px;margin-top:3vh;max-height:94vh;overflow-y:auto;--el-dialog-bg-color:#0f172a;--el-text-color-primary:#f8fafc;--el-text-color-regular:#cbd5e1;--el-table-row-hover-bg-color:#26354c;">
+      <p style="font-size:12px;color:var(--text-sub);">单位：USD / 百万 Token。请按你的服务商价格填写；启用后才计入估算。缓存写入单价需与你使用的缓存时长一致。</p>
+      <el-form-item label="参考 USD/CNY 汇率"><el-input-number v-model="pricingExchangeRate" :min="0.0001" :precision="4"></el-input-number></el-form-item>
+      <el-table :data="pricingRows" max-height="calc(94vh - 230px)" size="small">
+        <el-table-column label="计价" width="65"><template #default="{row}"><el-switch v-model="row.enabled" size="small"></el-switch></template></el-table-column>
+        <el-table-column prop="source_app" label="工具" width="95"></el-table-column>
+        <el-table-column prop="model" label="模型" min-width="180"></el-table-column>
+        <el-table-column v-for="field in pricingRateFields" :key="field.key" :label="field.label" min-width="135"><template #default="{row}"><el-input-number :key="row.enabled" v-model="row[field.key]" :disabled="!row.enabled" :min="0" :precision="6" :step="0.1" controls-position="right" style="width:120px;"></el-input-number></template></el-table-column>
+      </el-table>
+      <template #footer><el-button @click="pricingDialogVisible=false">取消</el-button><el-button type="primary" :loading="pricingSaving" @click="savePricingConfig">保存单价</el-button></template>
+    </el-dialog>
+
     <el-dialog v-model="quotaDialogVisible" title="✏️ 配额校准 & 终端信息智能粘贴识别" width="600px">
       <!-- 📋 终端输出智能识别卡片 -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px dashed #38bdf8; border-radius: 10px; padding: 14px 16px; margin-bottom: 18px;">
@@ -1454,7 +1248,7 @@ Five Hour Limit Remaining
         <div style="background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
           <div style="font-weight: 700; color: #38bdf8; margin-bottom: 10px; display: flex; justify-content: space-between;">
             <span>⏱️ 5小时限额设置 (5H Limit)</span>
-            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">滑动窗口周期</span>
+            <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">以服务商实际重置时间为准</span>
           </div>
           <el-row :gutter="14">
             <el-col :span="12">
@@ -1481,7 +1275,7 @@ Five Hour Limit Remaining
         <!-- 周限额 -->
         <div style="background: #0f172a; padding: 14px 16px; border-radius: 8px; border: 1px solid #334155;">
           <div style="font-weight: 700; color: #a855f7; margin-bottom: 10px; display: flex; justify-content: space-between;">
-            <span>📅 自然周配额设置 (Weekly Limit)</span>
+            <span>📅 周配额快照 (Weekly Limit)</span>
             <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">按周重置</span>
           </div>
           <el-row :gutter="14">
@@ -1496,6 +1290,10 @@ Five Hour Limit Remaining
               </el-form-item>
             </el-col>
           </el-row>
+        </div>
+
+        <div style="margin-top: 14px; font-size: 12px; color: #94a3b8; background: rgba(56, 189, 248, 0.08); border: 1px dashed rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 8px 12px; line-height: 1.6;">
+          💡 保存的是当前配额快照和重置倒计时。订阅扣费规则可能包含模型权重，不能根据本地 Token 数准确推算剩余百分比。
         </div>
       </el-form>
 
@@ -1527,23 +1325,83 @@ Five Hour Limit Remaining
         let countdownTimer = null;
 
         // 计费模式与币种配置
-        const pricingTier = ref('promo'); // 'promo' | 'standard'
+        const pricingTier = ref('configured');
         const currency = ref('USD'); // 'USD' | 'CNY'
+        const pricingDialogVisible = ref(false);
+        const pricingSaving = ref(false);
+        const pricingRows = ref([]);
+        const pricingExchangeRate = ref(7.23);
+        const pricingRateFields = [
+          {key:'input',label:'未缓存输入'}, {key:'cache_read',label:'缓存读取'},
+          {key:'cache_write',label:'缓存写入'}, {key:'output',label:'输出（含思考）'}
+        ];
+        const openPricingDialog = async () => {
+          try {
+            const response = await fetch('/api/pricing-config');
+            if (!response.ok) throw new Error('读取模型价格失败');
+            const data = await response.json();
+            pricingExchangeRate.value = data.config.exchange_rate;
+            const modelsByKey = new Map(data.models.map(model => [model.key, model]));
+            for (const key of Object.keys(data.config.models)) {
+              if (!modelsByKey.has(key)) {
+                const colon = key.indexOf(':');
+                modelsByKey.set(key, {key, source_app:key.slice(0,colon), model:key.slice(colon+1)});
+              }
+            }
+            pricingRows.value = Array.from(modelsByKey.values()).map(model => ({...model,
+              enabled: data.config.models[model.key] !== undefined,
+              input:0, cache_read:0, cache_write:0, output:0, ...data.config.models[model.key]}));
+            pricingDialogVisible.value = true;
+          } catch (error) { ElementPlus.ElMessage.error(error.message); }
+        };
+        const savePricingConfig = async () => {
+          pricingSaving.value = true;
+          try {
+            const models = {};
+            for (const row of pricingRows.value) {
+              if (row.enabled) models[row.key] = Object.fromEntries(pricingRateFields.map(field => [field.key, row[field.key]]));
+            }
+            const response = await fetch('/api/pricing-config', {method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({exchange_rate:pricingExchangeRate.value,models})});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || '保存价格失败');
+            pricingDialogVisible.value = false;
+            await fetchData(true);
+            ElementPlus.ElMessage.success('模型单价已保存');
+          } catch (error) { ElementPlus.ElMessage.error(error.message); }
+          finally { pricingSaving.value = false; }
+        };
 
         // 官方云端订阅限额状态
         const officialLoading = ref(false);
+        const officialError = ref('');
+        const nowSeconds = ref(Math.floor(Date.now() / 1000));
+        let lastOfficialAttempt = 0;
         const officialData = reactive({
           fetched_at: '',
+          fetched_at_sec: 0,
+          stale: false,
           description: '',
           groups: []
         });
+        const officialIsStale = computed(() => officialData.groups.length > 0 &&
+          (officialData.stale || !!officialError.value || nowSeconds.value - officialData.fetched_at_sec >= 120));
+        const bucketResetSeconds = bucket => {
+          const resetAt = Date.parse(bucket.reset_time) / 1000;
+          return Number.isFinite(resetAt) ? Math.max(0, Math.ceil(resetAt - nowSeconds.value)) : null;
+        };
+        const bucketResetExpired = bucket => bucketResetSeconds(bucket) === 0;
 
         const fetchOfficialUsage = async (force = false) => {
+          if (officialLoading.value) return;
+          lastOfficialAttempt = Date.now();
           officialLoading.value = true;
           try {
             const res = await fetch(`/api/official-usage?force=${force}`);
             const data = await res.json();
             if (data.success) {
+              Object.assign(officialData, data);
+              officialError.value = '';
               officialData.fetched_at = data.fetched_at;
               officialData.description = data.description || '';
               officialData.groups = data.groups || [];
@@ -1551,9 +1409,11 @@ Five Hour Limit Remaining
                 ElementPlus.ElMessage.success('官方云端订阅限额已成功同步！');
               }
             } else {
+              officialError.value = data.error || '官方配额查询失败';
               if (force) ElementPlus.ElMessage.warning(data.error || '获取官方限额失败');
             }
           } catch (e) {
+            officialError.value = '官方配额查询失败，请稍后重试';
             console.error('Fetch official usage error:', e);
             if (force) ElementPlus.ElMessage.error('网络或服务请求异常: ' + e);
           } finally {
@@ -1571,6 +1431,7 @@ Five Hour Limit Remaining
           if (!isoStr) return '';
           try {
             const d = new Date(isoStr);
+            if (!Number.isFinite(d.getTime())) return '';
             const m = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
             const h = String(d.getHours()).padStart(2, '0');
@@ -1610,13 +1471,13 @@ Five Hour Limit Remaining
 
         // 用户手动校准与自定义配额状态
         const customQuota = reactive({
-          quota_5h: { remaining_pct: 95, reset_seconds: 16000, reset_time_str: '4小时28分', capacity_tokens: 10000000, calibrated_at: Math.floor(Date.now() / 1000) },
-          quota_week: { remaining_pct: 88, reset_seconds: 580000, reset_time_str: '6天18小时', capacity_tokens: 50000000, calibrated_at: Math.floor(Date.now() / 1000) },
+          quota_5h: { remaining_pct: null, reset_seconds: 0, reset_time_str: '', calibrated_at: 0 },
+          quota_week: { remaining_pct: null, reset_seconds: 0, reset_time_str: '', calibrated_at: 0 },
         });
 
         const editQuota = reactive({
-          quota_5h: { remaining_pct: 95, reset_time_str: '4小时28分', reset_seconds: 16000 },
-          quota_week: { remaining_pct: 88, reset_time_str: '6天18小时', reset_seconds: 580000 }
+          quota_5h: { remaining_pct: null, reset_time_str: '', reset_seconds: 0 },
+          quota_week: { remaining_pct: null, reset_time_str: '', reset_seconds: 0 }
         });
 
         const quotaDialogVisible = ref(false);
@@ -1658,7 +1519,7 @@ Five Hour Limit Remaining
               res.quota_5h = {
                 remaining_pct: pct,
                 reset_time_str: tStr,
-                reset_seconds: sec > 0 ? sec : (pct > 0 ? Math.round(5 * 3600 * (pct / 100)) : 0)
+                reset_seconds: sec > 0 ? sec : 0
               };
             }
           }
@@ -1676,7 +1537,7 @@ Five Hour Limit Remaining
               res.quota_week = {
                 remaining_pct: pct,
                 reset_time_str: tStr,
-                reset_seconds: sec > 0 ? sec : (pct > 0 ? Math.round(7 * 86400 * (pct / 100)) : 0)
+                reset_seconds: sec > 0 ? sec : 0
               };
             }
           }
@@ -1768,13 +1629,15 @@ Five Hour Limit Remaining
                     localStorage.setItem('antigravity_custom_quota', JSON.stringify(customQuota));
                   } catch (e) {}
                   try {
-                    await fetch('/api/quota-config', {
+                    const response = await fetch('/api/quota-config', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(customQuota)
                     });
-                  } catch (e) {}
-                  ElementPlus.ElMessage.success(`🎉 成功从剪贴板一键同步配额！${detected.join(' | ')}`);
+                    if (!response.ok) throw new Error('保存失败');
+                  } catch (e) { ElementPlus.ElMessage.error('保存配额失败'); return; }
+                  await fetchOverview(true);
+                  ElementPlus.ElMessage.success(`配额快照已保存：${detected.join(' | ')}`);
                   return;
                 }
               }
@@ -1787,6 +1650,17 @@ Five Hour Limit Remaining
         const set5hCountdown = (hours) => {
           editQuota.quota_5h.reset_seconds = hours * 3600;
           editQuota.quota_5h.reset_time_str = `${hours}小时00分`;
+        };
+
+        const getEffective5hRemaining = () => quotas.quota_5h.snapshot?.remaining_pct ?? null;
+        const getEffectiveWeekRemaining = () => quotas.quota_week.snapshot?.remaining_pct ?? null;
+        const formatSnapshot = name => {
+          const cfg = customQuota[name];
+          if (cfg?.remaining_pct == null) return '未填报';
+          const resetAt = (cfg.calibrated_at || 0) + (cfg.reset_seconds || 0);
+          const expired = resetAt > 0 && resetAt <= nowSeconds.value;
+          const time = cfg.calibrated_at ? new Date(cfg.calibrated_at * 1000).toLocaleString() : '未知时间';
+          return `${cfg.remaining_pct}%（${time}${expired ? '，已过期' : ''}）`;
         };
 
         // 重新基于校准时间和当前时间推导剩余倒计时秒数
@@ -1819,12 +1693,12 @@ Five Hour Limit Remaining
 
           customQuota.quota_5h.remaining_pct = editQuota.quota_5h.remaining_pct;
           customQuota.quota_5h.reset_time_str = editQuota.quota_5h.reset_time_str;
-          customQuota.quota_5h.reset_seconds = editQuota.quota_5h.reset_seconds;
+          customQuota.quota_5h.reset_seconds = parseDurationToSeconds(editQuota.quota_5h.reset_time_str) || editQuota.quota_5h.reset_seconds || 0;
           customQuota.quota_5h.calibrated_at = nowTs;
 
           customQuota.quota_week.remaining_pct = editQuota.quota_week.remaining_pct;
           customQuota.quota_week.reset_time_str = editQuota.quota_week.reset_time_str;
-          customQuota.quota_week.reset_seconds = editQuota.quota_week.reset_seconds;
+          customQuota.quota_week.reset_seconds = parseDurationToSeconds(editQuota.quota_week.reset_time_str) || editQuota.quota_week.reset_seconds || 0;
           customQuota.quota_week.calibrated_at = nowTs;
 
           recomputeCountdowns();
@@ -1834,114 +1708,34 @@ Five Hour Limit Remaining
             localStorage.setItem('antigravity_custom_quota', JSON.stringify(customQuota));
           } catch (e) {}
 
-          // 后端持久化存储
           try {
-            await fetch('/api/quota-config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(customQuota)
+            const response = await fetch('/api/quota-config', {
+              method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(customQuota)
             });
-          } catch (e) {}
+            if (!response.ok) throw new Error('保存配额失败，请检查输入');
+            await fetchOverview(true);
+            quotaDialogVisible.value = false;
+            ElementPlus.ElMessage.success('配额快照已保存');
+          } catch (error) { ElementPlus.ElMessage.error(error.message); }
 
-          quotaDialogVisible.value = false;
-          ElementPlus.ElMessage.success('配额已校准，秒级实时倒计时已启动！');
         };
 
-        // 动态计算当前区间的费用预估与 Prompt Caching 节省数额（带前端兜底计算，彻底杜绝 0$）
+        // Use server-side per-model estimates; missing prices stay unknown.
         const currentCost = computed(() => {
-          const isCny = currency.value === 'CNY';
-          const sym = isCny ? '¥' : '$';
-          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
-          const isPromo = pricingTier.value === 'promo';
-
-          let total_usd = summary.costs?.[pricingTier.value]?.total_usd;
-          let input_usd = summary.costs?.[pricingTier.value]?.input_usd;
-          let cache_usd = summary.costs?.[pricingTier.value]?.cache_usd;
-          let output_usd = summary.costs?.[pricingTier.value]?.output_usd;
-          let saved_usd = summary.costs?.[pricingTier.value]?.saved_usd;
-
-          // 前端兜底乘积计算
-          if (total_usd === undefined || (total_usd === 0 && summary.total_tokens > 0)) {
-            const inT = Number(summary.input_tokens || 0);
-            const caT = Number(summary.cache_read_tokens || 0);
-            const outT = Number(summary.total_output_tokens || (Number(summary.thinking_tokens || 0) + Number(summary.response_tokens || 0)));
-            const inR = isPromo ? 0.75 : 1.50;
-            const caR = isPromo ? 0.0375 : 0.075;
-            const outR = isPromo ? 3.75 : 7.50;
-
-            input_usd = (inT / 1000000) * inR;
-            cache_usd = (caT / 1000000) * caR;
-            output_usd = (outT / 1000000) * outR;
-            total_usd = input_usd + cache_usd + output_usd;
-            saved_usd = (caT / 1000000) * (inR - caR);
-          }
-
-          const fmt = (val) => {
-            const num = Number(val || 0) * rate;
-            if (num === 0) return '0.00';
-            if (num >= 1.0) return num.toFixed(2);
-            if (num >= 0.001) return num.toFixed(4);
-            return num.toFixed(5);
-          };
-
-          return {
-            symbol: sym,
-            total: fmt(total_usd),
-            input: fmt(input_usd),
-            cache: fmt(cache_usd),
-            output: fmt(output_usd),
-            saved: fmt(saved_usd),
-            savedPercent: summary.total_tokens > 0 ? (summary.cache_hit_rate * 0.95).toFixed(1) : 0,
-          };
+          const costs = summary.costs?.configured || {};
+          const rate = currency.value === 'CNY' ? (summary.costs?.exchange_rate || 7.23) : 1;
+          const fmt = value => value == null ? '—' : (Number(value) * rate).toFixed(5);
+          return {symbol: costs.total_usd == null ? '' : (currency.value === 'CNY' ? '¥' : '$'),
+            total: costs.total_usd == null ? '未配置价格' : fmt(costs.total_usd),
+            input: fmt(costs.input_usd), cache: fmt(costs.cache_usd), write: fmt(costs.cache_write_usd),
+            output: fmt(costs.output_usd), saved: fmt(costs.saved_usd), savedPercent: costs.saved_percent || 0};
         });
-
-        const formatSessionCost = (row) => {
-          if (!row) return '$0.00';
-          const isCny = currency.value === 'CNY';
-          const sym = isCny ? '¥' : '$';
-          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
-          const isPromo = pricingTier.value === 'promo';
-
-          let val = isPromo ? row.cost_promo_usd : row.cost_std_usd;
-          if (val === undefined || (val === 0 && row.total_tokens > 0)) {
-            const inT = Number(row.input_tokens || 0);
-            const caT = Number(row.cache_read_tokens || 0);
-            const outT = Number(row.thinking_tokens || 0) + Number(row.response_tokens || 0);
-            const inR = isPromo ? 0.75 : 1.50;
-            const caR = isPromo ? 0.0375 : 0.075;
-            const outR = isPromo ? 3.75 : 7.50;
-            val = (inT / 1e6) * inR + (caT / 1e6) * caR + (outT / 1e6) * outR;
-          }
-          const num = Number(val || 0) * rate;
-          if (num === 0) return `${sym}0.00`;
-          if (num >= 1.0) return `${sym}${num.toFixed(2)}`;
-          if (num >= 0.001) return `${sym}${num.toFixed(4)}`;
-          return `${sym}${num.toFixed(5)}`;
+        const formatSessionCost = row => {
+          if (row?.cost_usd == null) return '未配置价格';
+          const rate = currency.value === 'CNY' ? (summary.costs?.exchange_rate || 7.23) : 1;
+          return `${currency.value === 'CNY' ? '¥' : '$'}${(row.cost_usd * rate).toFixed(5)}${row.unpriced_turns ? '（部分）' : ''}`;
         };
-
-        const formatTurnCost = (turn) => {
-          if (!turn) return '$0.00';
-          const isCny = currency.value === 'CNY';
-          const sym = isCny ? '¥' : '$';
-          const rate = isCny ? (summary.costs?.exchange_rate || 7.23) : 1.0;
-          const isPromo = pricingTier.value === 'promo';
-
-          let val = isPromo ? turn.cost_promo_usd : turn.cost_std_usd;
-          if (val === undefined || (val === 0 && turn.total_tokens > 0)) {
-            const inT = Number(turn.input_tokens || 0);
-            const caT = Number(turn.cache_read_tokens || 0);
-            const outT = Number(turn.total_output_tokens || (Number(turn.thinking_tokens || 0) + Number(turn.response_tokens || 0)));
-            const inR = isPromo ? 0.75 : 1.50;
-            const caR = isPromo ? 0.0375 : 0.075;
-            const outR = isPromo ? 3.75 : 7.50;
-            val = (inT / 1e6) * inR + (caT / 1e6) * caR + (outT / 1e6) * outR;
-          }
-          const num = Number(val || 0) * rate;
-          if (num === 0) return `${sym}0.00`;
-          if (num >= 1.0) return `${sym}${num.toFixed(2)}`;
-          if (num >= 0.001) return `${sym}${num.toFixed(4)}`;
-          return `${sym}${num.toFixed(5)}`;
-        };
+        const formatTurnCost = turn => formatSessionCost(turn);
 
         const quotas = reactive({
           quota_5h: {
@@ -2078,23 +1872,10 @@ Five Hour Limit Remaining
                 weeklyResetCountdown.value = data.quotas.quota_week.weekly_reset_seconds || 0;
               }
               if (data.custom_quota) {
-                try {
-                  const saved = localStorage.getItem('antigravity_custom_quota');
-                  if (saved) {
-                    Object.assign(customQuota, JSON.parse(saved));
-                  } else {
-                    Object.assign(customQuota, data.custom_quota);
-                  }
-                } catch(e) {
-                  Object.assign(customQuota, data.custom_quota);
-                }
+                Object.assign(customQuota, data.custom_quota);
                 recomputeCountdowns();
               }
-              if (data.official_quotas && data.official_quotas.success && (!officialData.groups || officialData.groups.length === 0)) {
-                officialData.fetched_at = data.official_quotas.fetched_at;
-                officialData.description = data.official_quotas.description;
-                officialData.groups = data.official_quotas.groups;
-              }
+              if (data.official_quotas?.success) Object.assign(officialData, data.official_quotas);
               models.value = data.models || [];
               trendData.value = data.trend || [];
 
@@ -2136,6 +1917,7 @@ Five Hour Limit Remaining
 
         const fetchData = async (silent = false) => {
           await Promise.all([fetchOverview(silent), fetchSessions(silent)]);
+          if (Date.now() - lastOfficialAttempt >= 120000) fetchOfficialUsage(false);
         };
 
         // 平台来源切换
@@ -2251,6 +2033,7 @@ Five Hour Limit Remaining
           const totals = trendData.value.map(d => d.total);
           const inputs = trendData.value.map(d => d.input);
           const cacheReads = trendData.value.map(d => d.cache_read);
+          const cacheWrites = trendData.value.map(d => d.cache_write || 0);
           const thinkings = trendData.value.map(d => d.thinking);
           const responses = trendData.value.map(d => d.response);
 
@@ -2273,7 +2056,7 @@ Five Hour Limit Remaining
               }
             },
             legend: {
-              data: ['总 Token', '缓存读取', '未缓存输入', '思考推理', '回复正文'],
+              data: ['总 Token', '缓存读取', '缓存写入', '未缓存输入', '思考推理', '回复正文'],
               textStyle: { color: '#94a3b8' },
               top: 0
             },
@@ -2333,6 +2116,7 @@ Five Hour Limit Remaining
                 lineStyle: { width: 2, color: '#3b82f6' },
                 data: cacheReads
               },
+              {name:'缓存写入',type:'line',smooth:true,showSymbol:false,lineStyle:{width:2,color:'#10b981'},data:cacheWrites},
               {
                 name: '未缓存输入',
                 type: 'line',
@@ -2444,10 +2228,11 @@ Five Hour Limit Remaining
           // 自动启动本地定时刷新（静默启动，默认 10 秒或沿用用户偏好）
           setupAutoRefresh(false);
           // 初次加载异步获取官方云端配额
-          fetchOfficialUsage(false);
+          if (!lastOfficialAttempt) fetchOfficialUsage(false);
 
           // 启动每秒倒计时递减器（秒级实时动态递减，保证界面秒秒在跳动！）
           countdownTimer = setInterval(() => {
+            nowSeconds.value = Math.floor(Date.now() / 1000);
             if (manual5hCountdown.value > 0) manual5hCountdown.value--;
             if (manualWeekCountdown.value > 0) manualWeekCountdown.value--;
             if (reliefCountdown.value > 0) reliefCountdown.value--;
@@ -2508,6 +2293,18 @@ Five Hour Limit Remaining
           tableLoading,
           autoRefreshSec,
           nextRefreshCountdown,
+          pricingDialogVisible,
+          pricingSaving,
+          pricingRows,
+          pricingExchangeRate,
+          pricingRateFields,
+          openPricingDialog,
+          savePricingConfig,
+          officialError,
+          officialIsStale,
+          bucketResetSeconds,
+          bucketResetExpired,
+          formatSnapshot,
           officialLoading,
           officialData,
           fetchOfficialUsage,
@@ -2516,6 +2313,8 @@ Five Hour Limit Remaining
           meta,
           summary,
           quotas,
+          getEffective5hRemaining,
+          getEffectiveWeekRemaining,
           reliefCountdown,
           manual5hCountdown,
           manualWeekCountdown,

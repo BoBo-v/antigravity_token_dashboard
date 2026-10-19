@@ -32,6 +32,7 @@ hiddenimports = [
     'clr',
     'pythonnet',
     'desktop_tray',
+    'zstandard',
 ]
 
 a = Analysis(

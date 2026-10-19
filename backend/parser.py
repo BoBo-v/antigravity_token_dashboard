@@ -204,6 +204,7 @@ def parse_gen_metadata_blob(blob: bytes) -> Optional[Dict[str, Any]]:
         "total_tokens": input_tokens + cache_read_tokens + cache_write_tokens + total_output,
         "response_id": response_id,
         "gen_uuid": gen_uuid,
+        "step_id": gen_uuid,
     }
 
 
@@ -264,8 +265,9 @@ def read_conversation_db(db_path: Path) -> List[Dict[str, Any]]:
         if not cur.fetchone():
             return records
 
-        # 2. 从 steps 表中提取每一步的精确时间戳与耗时
-        step_timings = {}
+        # 2. 从 steps 表中提取每一步的精确时间戳与耗时（支持按 step_id 与 idx 双重索引）
+        step_timings_by_id = {}
+        step_timings_by_idx = {}
         try:
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='steps'")
             if cur.fetchone():
@@ -273,7 +275,14 @@ def read_conversation_db(db_path: Path) -> List[Dict[str, Any]]:
                 for s_idx, s_meta in cur.fetchall():
                     timing = extract_step_timing(s_meta)
                     if timing:
-                        step_timings[s_idx] = timing
+                        step_timings_by_idx[s_idx] = timing
+                        try:
+                            m_root = parse_proto_message(bytes(s_meta))
+                            s_step_id = get_first_str(m_root, 12)
+                            if s_step_id:
+                                step_timings_by_id[s_step_id] = timing
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -298,7 +307,12 @@ def read_conversation_db(db_path: Path) -> List[Dict[str, Any]]:
                 continue
             seen_resp_ids.add(dedup_key)
 
-            timing = step_timings.get(row_idx)
+            # 核心修复：优先通过 step_id (Field 12 / Field 4) 精确匹配步骤生命周期与时间戳
+            step_id = parsed.get("step_id") or parsed.get("gen_uuid")
+            timing = step_timings_by_id.get(step_id) if step_id else None
+            if not timing:
+                timing = step_timings_by_idx.get(row_idx)
+
             if timing:
                 ts_sec = int(timing["start"])
                 duration_sec = round(timing["duration"], 2)

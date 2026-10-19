@@ -1,136 +1,130 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-OpenAI Codex CLI 会话 (.jsonl.zst) 解码与 Token 解析模块
-"""
+"""Codex JSONL / zstd usage parser with disjoint token categories."""
 
+import hashlib
 import io
 import json
+import logging
+import re
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, List, Optional, Any
+
+from .usage import local_timestamp, token_count
 
 try:
     import zstandard as zstd
-    HAS_ZSTD = True
 except ImportError:
     zstd = None
-    HAS_ZSTD = False
+HAS_ZSTD = zstd is not None
+READ_ERRORS = (OSError, UnicodeError) + ((zstd.ZstdError,) if zstd else ())
 
 
-def read_codex_session(zst_path: Path, titles_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    """
-    解析单个 Codex .jsonl.zst 会话文件中的所有 Token 轮次记录
-    """
-    if not HAS_ZSTD or not zst_path.is_file():
+def read_codex_session(file_path: Path, titles_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    if not file_path.is_file():
         return []
-
+    is_zst = file_path.name.endswith(".zst")
+    if is_zst and not HAS_ZSTD:
+        return []
     records = []
-    file_mtime = int(zst_path.stat().st_mtime)
-    dctx = zstd.ZstdDecompressor()
-
+    fallback = file_path.stat().st_mtime
     session_id = None
-    session_title = ""
-    current_model = "gpt-5.5"
-    prev_total_tokens = 0
-    turn_idx = 0
+    title = ""
+    model = "Unknown Model"
+    previous = None
+    seen = set()
+    fields = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens",
+              "output_tokens", "reasoning_output_tokens", "total_tokens")
+
+    def parse_stream(stream):
+        nonlocal session_id, title, model, previous
+        for line in stream:
+            try:
+                obj = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(obj, dict):
+                continue
+            payload = obj.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            kind = obj.get("type")
+            if kind == "session_meta":
+                session_id = payload.get("session_id") or payload.get("id") or session_id
+                model = payload.get("model") or model
+            elif kind == "turn_context":
+                model = payload.get("model") or model
+            elif kind == "response_item" and payload.get("role") == "user" and not title:
+                for part in payload.get("content", []) or []:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        text = part["text"]
+                        if not text.startswith("<environment_context>"):
+                            title = text[:60].strip()
+                            break
+            elif payload.get("type") == "token_count":
+                info = payload.get("info")
+                if not isinstance(info, dict):
+                    continue
+                cumulative = info.get("total_token_usage")
+                last = info.get("last_token_usage")
+                cumulative = cumulative if isinstance(cumulative, dict) else {}
+                last = last if isinstance(last, dict) else {}
+                total = token_count(cumulative.get("total_tokens"))
+                if previous and total == previous["total_tokens"] and total > 0:
+                    continue
+                usage = {key: token_count(last.get(key)) for key in fields}
+                aggregated = False
+                if total:
+                    current = {key: token_count(cumulative.get(key)) for key in fields}
+                    # A fork can start with an inherited cumulative counter.
+                    # Subtract only after observing a baseline in this file.
+                    if previous and total > previous["total_tokens"]:
+                        delta = {key: max(0, current[key] - previous[key]) for key in fields}
+                        if delta["total_tokens"] != usage["total_tokens"]:
+                            usage = delta
+                            aggregated = True
+                    elif not last:
+                        usage = current
+                        aggregated = True
+                    previous = current
+                inclusive_input = usage["input_tokens"]
+                cache_read = min(inclusive_input, usage["cached_input_tokens"])
+                cache_write = min(inclusive_input - cache_read, usage["cache_write_input_tokens"])
+                output = usage["output_tokens"]
+                thinking = min(output, usage["reasoning_output_tokens"])
+                if inclusive_input + output == 0:
+                    continue
+                fingerprint = json.dumps([obj.get("timestamp"), total, usage], sort_keys=True)
+                key = hashlib.sha256(fingerprint.encode()).hexdigest()[:24]
+                if key in seen:
+                    continue
+                seen.add(key)
+                records.append({
+                    "turn_idx": len(records) + 1, "model": model,
+                    "input_tokens": inclusive_input - cache_read - cache_write,
+                    "cache_read_tokens": cache_read, "cache_write_tokens": cache_write,
+                    "thinking_tokens": thinking, "response_tokens": output - thinking,
+                    "total_output_tokens": output, "total_tokens": inclusive_input + output,
+                    "response_id": f"codex_{key}", "gen_uuid": f"codex_{key}",
+                    "usage_aggregated": aggregated,
+                    **local_timestamp(obj.get("timestamp"), fallback),
+                    "duration_sec": 0.0, "ttft_sec": None, "speed_tps": 0.0,
+                    "source_app": "codex",
+                })
 
     try:
-        with open(zst_path, "rb") as fh:
-            with dctx.stream_reader(fh) as reader:
-                text_stream = io.TextIOWrapper(reader, encoding="utf-8", errors="ignore")
-                for line in text_stream:
-                    try:
-                        obj = json.loads(line)
-                    except Exception:
-                        continue
-
-                    otype = obj.get("type")
-                    payload = obj.get("payload", {})
-                    ts_raw = obj.get("timestamp")
-
-                    if otype == "session_meta" and isinstance(payload, dict):
-                        session_id = payload.get("session_id") or payload.get("id")
-                    elif otype == "turn_context" and isinstance(payload, dict):
-                        if payload.get("model"):
-                            current_model = payload.get("model")
-                    elif otype == "response_item" and isinstance(payload, dict):
-                        if payload.get("role") == "user" and not session_title:
-                            content = payload.get("content", [])
-                            if isinstance(content, list) and content:
-                                txt = content[0].get("text", "")
-                                if not txt.startswith("<environment_context>"):
-                                    session_title = txt[:60].strip()
-                    elif payload.get("type") == "token_count" and payload.get("info"):
-                        info = payload["info"]
-                        tot_usage = info.get("total_token_usage", {})
-                        tot = tot_usage.get("total_tokens", 0)
-
-                        # 只有当 total_tokens 严格递增时，才代表一次新的 LLM 调用完成（避免重复流事件）
-                        if tot > prev_total_tokens:
-                            last_u = info.get("last_token_usage", {})
-                            in_tok = last_u.get("input_tokens", 0)
-                            cache_r = last_u.get("cached_input_tokens", 0)
-                            cache_w = last_u.get("cache_write_input_tokens", 0)
-                            out_tok = last_u.get("output_tokens", 0)
-                            think_tok = last_u.get("reasoning_output_tokens", 0)
-                            call_tot = last_u.get("total_tokens", 0)
-
-                            # 时间戳解析
-                            ts_sec = file_mtime
-                            if ts_raw:
-                                try:
-                                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                                    ts_sec = int(dt.timestamp())
-                                except Exception:
-                                    dt = datetime.fromtimestamp(ts_sec)
-                            else:
-                                dt = datetime.fromtimestamp(ts_sec)
-
-                            turn_idx += 1
-                            records.append({
-                                "turn_idx": turn_idx,
-                                "model": current_model,
-                                "input_tokens": in_tok,
-                                "cache_read_tokens": cache_r,
-                                "cache_write_tokens": cache_w,
-                                "thinking_tokens": think_tok,
-                                "response_tokens": max(0, out_tok - think_tok),
-                                "total_output_tokens": out_tok,
-                                "total_tokens": call_tot or (in_tok + cache_r + cache_w + out_tok),
-                                "response_id": f"codex_call_{turn_idx}",
-                                "gen_uuid": f"codex_{zst_path.stem}_{turn_idx}",
-                                "timestamp_sec": ts_sec,
-                                "timestamp_str": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                                "date_str": dt.strftime("%Y-%m-%d"),
-                                "hour_str": dt.strftime("%Y-%m-%d %H:00"),
-                                "hour_num": dt.hour,
-                                "duration_sec": 0.0,
-                                "ttft_sec": None,
-                                "speed_tps": 0.0,
-                                "source_app": "codex",
-                            })
-                            prev_total_tokens = tot
-    except Exception:
-        pass
-
-    # 若 session_id 未读取到，用文件名解析兜底
-    if not session_id:
-        stem = zst_path.name.replace(".jsonl.zst", "")
-        parts = stem.split("-")
-        if len(parts) >= 5:
-            session_id = "-".join(parts[-5:])
+        if is_zst:
+            with file_path.open("rb") as file:
+                with zstd.ZstdDecompressor().stream_reader(file) as reader:
+                    with io.TextIOWrapper(reader, encoding="utf-8", errors="replace") as stream:
+                        parse_stream(stream)
         else:
-            session_id = stem
-
-    resolved_title = ""
-    if titles_map and session_id in titles_map:
-        resolved_title = titles_map[session_id]
-    if not resolved_title:
-        resolved_title = session_title or session_id[:16]
-
-    for r in records:
-        r["session_id"] = session_id
-        r["session_title"] = resolved_title
-
+            with file_path.open(encoding="utf-8", errors="replace") as stream:
+                parse_stream(stream)
+    except READ_ERRORS as error:
+        logging.getLogger(__name__).warning("Cannot read Codex log %s: %s", file_path, error)
+    if not session_id:
+        match = re.search(r"([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})(?:\.jsonl(?:\.zst)?)?$", file_path.name, re.I)
+        session_id = match.group(1) if match else file_path.name.removesuffix(".zst").removesuffix(".jsonl")
+    title = (titles_map or {}).get(session_id) or title or session_id[:16]
+    for record in records:
+        record.update(session_id=session_id, session_title=title)
     return records

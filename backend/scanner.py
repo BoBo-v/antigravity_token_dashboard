@@ -9,6 +9,7 @@ import io
 import csv
 import time
 import sqlite3
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
@@ -17,6 +18,7 @@ from collections import defaultdict
 from .parser import read_conversation_db, MODEL_PLACEHOLDER_MAP
 from .codex_parser import read_codex_session
 from .claude_parser import read_claude_session
+from .pricing import calculate_costs
 
 
 class TokenScannerService:
@@ -31,6 +33,10 @@ class TokenScannerService:
         self._last_scan_ts: float = 0.0
         self._official_usage_cache: Optional[Dict[str, Any]] = None
         self._official_usage_time: float = 0.0
+        self._official_usage_error = None
+        self._lock = threading.RLock()
+        self._official_lock = threading.Lock()
+        self.pricing_config = {"models": {}, "exchange_rate": 7.23}
 
     def get_gemini_root(self) -> Path:
         """获取 Antigravity 配置与会话根目录"""
@@ -59,7 +65,7 @@ class TokenScannerService:
     def get_claude_root(self) -> Path:
         """获取 Anthropic Claude Code 配置与会话根目录"""
         import os
-        env_val = os.environ.get("CLAUDE_HOME")
+        env_val = os.environ.get("CLAUDE_CONFIG_DIR") or os.environ.get("CLAUDE_HOME")
         if env_val:
             p = Path(env_val).expanduser()
             if p.exists():
@@ -168,14 +174,14 @@ class TokenScannerService:
         return sorted(found.values(), key=lambda p: p.stat().st_mtime, reverse=True)
 
     def discover_codex_files(self, codex_root: Path) -> List[Path]:
-        """搜寻所有 OpenAI Codex 会话 .jsonl.zst 文件"""
-        sessions_dir = codex_root / "sessions"
-        if not sessions_dir.exists():
-            return []
+        """搜寻所有 OpenAI Codex 会话 .jsonl 与 .jsonl.zst 文件"""
         found = []
-        for p in sessions_dir.rglob("*.jsonl.zst"):
-            if p.is_file():
-                found.append(p)
+        for sessions_dir in (codex_root / "sessions", codex_root / "archived_sessions"):
+            if not sessions_dir.exists():
+                continue
+            for p in sessions_dir.rglob("*"):
+                if p.is_file() and (p.name.endswith(".jsonl") or p.name.endswith(".jsonl.zst")):
+                    found.append(p)
         return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
     def discover_claude_files(self, claude_root: Path) -> List[Path]:
@@ -190,6 +196,20 @@ class TokenScannerService:
         return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
     def scan(self, force: bool = False):
+        with self._lock:
+            self._scan(force)
+
+    @staticmethod
+    def _fingerprint(path):
+        def state(candidate):
+            try:
+                stat = candidate.stat()
+                return stat.st_mtime_ns, stat.st_size
+            except FileNotFoundError:
+                return None
+        return state(path), state(path.with_name(path.name + "-wal")) if path.suffix == ".db" else None
+
+    def _scan(self, force: bool = False):
         """执行全量/增量扫描，跨 Antigravity、Codex 与 Claude Code，使用文件 mtime 进行高效缓存"""
         gemini_root = self.get_gemini_root()
         codex_root = self.get_codex_root()
@@ -219,12 +239,13 @@ class TokenScannerService:
             current_db_paths.add(p_str)
             try:
                 mtime = db_path.stat().st_mtime
+                fingerprint = self._fingerprint(db_path)
             except Exception:
                 continue
 
             # 命中缓存检查
             if not force and p_str in self._db_cache:
-                if self._db_cache[p_str]["mtime"] == mtime:
+                if self._db_cache[p_str].get("fingerprint") == fingerprint:
                     continue
 
             # 重新解析
@@ -241,6 +262,7 @@ class TokenScannerService:
                 r["source_app"] = source_app
 
             self._db_cache[p_str] = {
+                "fingerprint": fingerprint,
                 "mtime": mtime,
                 "session_id": session_id,
                 "session_title": session_title,
@@ -256,11 +278,12 @@ class TokenScannerService:
             current_db_paths.add(p_str)
             try:
                 mtime = zst_path.stat().st_mtime
+                fingerprint = self._fingerprint(zst_path)
             except Exception:
                 continue
 
             if not force and p_str in self._db_cache:
-                if self._db_cache[p_str]["mtime"] == mtime:
+                if self._db_cache[p_str].get("fingerprint") == fingerprint:
                     continue
 
             records = read_codex_session(zst_path, title_dict)
@@ -268,6 +291,7 @@ class TokenScannerService:
             session_title = records[0]["session_title"] if records else session_id[:12]
 
             self._db_cache[p_str] = {
+                "fingerprint": fingerprint,
                 "mtime": mtime,
                 "session_id": session_id,
                 "session_title": session_title,
@@ -283,11 +307,12 @@ class TokenScannerService:
             current_db_paths.add(p_str)
             try:
                 mtime = jsonl_path.stat().st_mtime
+                fingerprint = self._fingerprint(jsonl_path)
             except Exception:
                 continue
 
             if not force and p_str in self._db_cache:
-                if self._db_cache[p_str]["mtime"] == mtime:
+                if self._db_cache[p_str].get("fingerprint") == fingerprint:
                     continue
 
             records = read_claude_session(jsonl_path, title_dict)
@@ -295,6 +320,7 @@ class TokenScannerService:
             session_title = records[0]["session_title"] if records else session_id[:12]
 
             self._db_cache[p_str] = {
+                "fingerprint": fingerprint,
                 "mtime": mtime,
                 "session_id": session_id,
                 "session_title": session_title,
@@ -318,15 +344,24 @@ class TokenScannerService:
         if force_scan or not self._db_cache or (now - getattr(self, "_last_scan_ts", 0.0) >= max_cache_age):
             self.scan(force=force_scan)
 
-        processed_sessions = set()
-        all_turns = []
-        for p_str, item in self._db_cache.items():
-            sid = item["session_id"]
-            if sid in processed_sessions:
-                continue
-            processed_sessions.add(sid)
-            all_turns.extend(item["records"])
-        return all_turns
+        merged = {}
+        count_fields = ("input_tokens", "cache_read_tokens", "cache_write_tokens",
+                        "thinking_tokens", "response_tokens", "total_output_tokens", "total_tokens")
+        with self._lock:
+            for item in self._db_cache.values():
+                for record in item["records"]:
+                    key = (record.get("source_app", "antigravity"), record["session_id"],
+                           record.get("response_id") or record.get("gen_uuid") or record["turn_idx"])
+                    if key not in merged:
+                        merged[key] = dict(record)
+                    elif record.get("source_app") == "claude-code":
+                        previous = merged[key]
+                        for field in count_fields:
+                            previous[field] = max(previous.get(field, 0), record.get(field, 0))
+                        previous["total_output_tokens"] = previous["response_tokens"]
+                        previous["total_tokens"] = sum(previous[f] for f in
+                            ("input_tokens", "cache_read_tokens", "cache_write_tokens", "total_output_tokens"))
+        return list(merged.values())
 
     def filter_turns(self, turns: List[Dict[str, Any]], time_range: str, start_date: Optional[str] = None, end_date: Optional[str] = None, source: Optional[str] = "all") -> List[Dict[str, Any]]:
         """
@@ -382,10 +417,10 @@ class TokenScannerService:
         response_tokens = sum(t["response_tokens"] for t in turns)
         total_output_tokens = sum(t["total_output_tokens"] for t in turns)
 
-        total_prompt = input_tokens + cache_read_tokens
+        total_prompt = input_tokens + cache_read_tokens + cache_write_tokens
         cache_hit_rate = round((cache_read_tokens / total_prompt * 100), 2) if total_prompt > 0 else 0.0
 
-        distinct_sessions = len(set(t["session_id"] for t in turns))
+        distinct_sessions = len(set((t.get("source_app", "antigravity"), t["session_id"]) for t in turns))
         turns_count = len(turns)
         avg_per_turn = round(total_tokens / turns_count) if turns_count > 0 else 0
 
@@ -411,19 +446,6 @@ class TokenScannerService:
                 "sessions_count": len(d["_sessions"]),
             }
 
-        # 费用估计（根据用户提供的 2026 促销期与 2027 标准期百万 Token 定价标准）
-        cost_promo_input = (input_tokens / 1000000) * 0.75
-        cost_promo_cache = (cache_read_tokens / 1000000) * 0.0375
-        cost_promo_output = (total_output_tokens / 1000000) * 3.75
-        total_cost_promo = cost_promo_input + cost_promo_cache + cost_promo_output
-        saved_promo = (cache_read_tokens / 1000000) * (0.75 - 0.0375)
-
-        cost_std_input = (input_tokens / 1000000) * 1.50
-        cost_std_cache = (cache_read_tokens / 1000000) * 0.075
-        cost_std_output = (total_output_tokens / 1000000) * 7.50
-        total_cost_std = cost_std_input + cost_std_cache + cost_std_output
-        saved_std = (cache_read_tokens / 1000000) * (1.50 - 0.075)
-
         return {
             "total_tokens": total_tokens,
             "input_tokens": input_tokens,
@@ -439,100 +461,81 @@ class TokenScannerService:
             "avg_speed_tps": avg_speed_tps,
             "avg_duration_sec": avg_duration_sec,
             "by_source": by_source,
-            "costs": {
-                "exchange_rate": 7.23,
-                "promo": {
-                    "total_usd": round(total_cost_promo, 4),
-                    "total_cny": round(total_cost_promo * 7.23, 2),
-                    "input_usd": round(cost_promo_input, 4),
-                    "cache_usd": round(cost_promo_cache, 4),
-                    "output_usd": round(cost_promo_output, 4),
-                    "saved_usd": round(saved_promo, 4),
-                    "saved_cny": round(saved_promo * 7.23, 2),
-                },
-                "standard": {
-                    "total_usd": round(total_cost_std, 4),
-                    "total_cny": round(total_cost_std * 7.23, 2),
-                    "input_usd": round(cost_std_input, 4),
-                    "cache_usd": round(cost_std_cache, 4),
-                    "output_usd": round(cost_std_output, 4),
-                    "saved_usd": round(saved_std, 4),
-                    "saved_cny": round(saved_std * 7.23, 2),
-                }
-            }
+            "costs": calculate_costs(turns, self.pricing_config),
         }
 
-    def calculate_quotas(self, all_turns: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """计算 5小时滑动窗口额度与周限额监控数据"""
+    def calculate_quotas(self, all_turns, custom_quota=None, official_quotas=None, source="all"):
+        """Local windows are usage statistics, never a proxy for provider quota."""
         now = datetime.now()
         now_ts = int(now.timestamp())
-
-        # 1. 5小时滑动窗口 (5H Rolling Window)
-        five_h_start = now_ts - 5 * 3600
-        turns_5h = [t for t in all_turns if t["timestamp_sec"] >= five_h_start]
-        tokens_5h = sum(t["total_tokens"] for t in turns_5h)
-        calls_5h = len(turns_5h)
-        input_5h = sum(t["input_tokens"] + t["cache_read_tokens"] for t in turns_5h)
-        output_5h = sum(t["total_output_tokens"] for t in turns_5h)
-
-        models_5h = defaultdict(int)
-        for t in turns_5h:
-            models_5h[t["model"]] += t["total_tokens"]
-
-        next_relief_seconds = 0
-        next_relief_tokens = 0
-        if turns_5h:
-            min_ts = min(t["timestamp_sec"] for t in turns_5h)
-            relief_at = min_ts + 5 * 3600
-            next_relief_seconds = max(0, relief_at - now_ts)
-            # 最早一批（前 15 分钟内）的释放量预估
-            next_relief_tokens = sum(t["total_tokens"] for t in turns_5h if t["timestamp_sec"] <= min_ts + 900)
-
-        # 2. 自然周 (从周一 00:00:00 至今)
-        today = now.date()
-        monday = today - timedelta(days=today.weekday())
+        turns = [t for t in all_turns if t["timestamp_sec"] <= now_ts
+                 and (source in (None, "all") or t.get("source_app") == source)]
+        turns_5h = [t for t in turns if t["timestamp_sec"] > now_ts - 5 * 3600]
+        monday = now.date() - timedelta(days=now.weekday())
         monday_ts = int(datetime.combine(monday, datetime.min.time()).timestamp())
-        turns_week = [t for t in all_turns if t["timestamp_sec"] >= monday_ts]
-        tokens_week = sum(t["total_tokens"] for t in turns_week)
-        calls_week = len(turns_week)
-
-        # 距离下周一 00:00:00 重置倒计时
+        turns_week = [t for t in turns if t["timestamp_sec"] >= monday_ts]
+        turns_7d = [t for t in turns if t["timestamp_sec"] > now_ts - 7 * 86400]
         next_monday = monday + timedelta(days=7)
         next_monday_ts = int(datetime.combine(next_monday, datetime.min.time()).timestamp())
-        weekly_reset_seconds = max(0, next_monday_ts - now_ts)
+        models = defaultdict(int)
+        for turn in turns_5h:
+            models[turn["model"]] += turn["total_tokens"]
+        earliest = min((t["timestamp_sec"] for t in turns_5h), default=None)
 
-        # 3. 滑动 7 天统计 (Past 7 Days Rolling)
-        seven_d_start = now_ts - 7 * 86400
-        turns_7d = [t for t in all_turns if t["timestamp_sec"] >= seven_d_start]
-        tokens_7d = sum(t["total_tokens"] for t in turns_7d)
-
-        # 日均燃烧率 (过去 7 天日均消耗)
-        daily_burn_rate = round(tokens_7d / 7) if tokens_7d > 0 else 0
+        def snapshot(name):
+            cfg = (custom_quota or {}).get(name, {})
+            pct = cfg.get("remaining_pct")
+            calibrated = cfg.get("calibrated_at") or 0
+            reset_at = calibrated + (cfg.get("reset_seconds") or 0)
+            expired = reset_at > 0 and reset_at <= now_ts
+            return {
+                "source": "manual" if pct is not None else "unknown",
+                "remaining_pct": None if expired else pct,
+                "calibrated_at": calibrated, "reset_at": reset_at or None,
+                "expired": expired, "reset_seconds": max(0, reset_at - now_ts),
+            }
 
         return {
+            "source": source or "all",
             "quota_5h": {
-                "used_tokens": tokens_5h,
-                "calls": calls_5h,
-                "input_tokens": input_5h,
-                "output_tokens": output_5h,
-                "models": dict(models_5h),
-                "next_relief_seconds": next_relief_seconds,
-                "next_relief_tokens": next_relief_tokens,
-                "window_start": datetime.fromtimestamp(five_h_start).strftime("%H:%M"),
+                "used_tokens": sum(t["total_tokens"] for t in turns_5h),
+                "calls": len(turns_5h),
+                "input_tokens": sum(t["input_tokens"] + t["cache_read_tokens"] + t.get("cache_write_tokens", 0) for t in turns_5h),
+                "output_tokens": sum(t["total_output_tokens"] for t in turns_5h),
+                "models": dict(models),
+                "next_relief_seconds": earliest + 5 * 3600 - now_ts if earliest is not None else 0,
+                "next_relief_tokens": sum(t["total_tokens"] for t in turns_5h if t["timestamp_sec"] == earliest),
+                "window_start": datetime.fromtimestamp(now_ts - 5 * 3600).strftime("%H:%M"),
                 "window_end": now.strftime("%H:%M"),
+                "dynamic": None, "snapshot": snapshot("quota_5h"),
             },
             "quota_week": {
-                "used_tokens": tokens_week,
-                "calls": calls_week,
-                "weekly_reset_seconds": weekly_reset_seconds,
-                "monday_date": monday.strftime("%Y-%m-%d"),
+                "used_tokens": sum(t["total_tokens"] for t in turns_week),
+                "calls": len(turns_week),
+                "weekly_reset_seconds": max(0, next_monday_ts - now_ts),
+                "monday_date": monday.isoformat(),
                 "next_reset_date": next_monday.strftime("%Y-%m-%d 00:00"),
-                "tokens_7d_rolling": tokens_7d,
-                "daily_burn_rate": daily_burn_rate,
-            }
+                "tokens_7d_rolling": sum(t["total_tokens"] for t in turns_7d),
+                "daily_burn_rate": round(sum(t["total_tokens"] for t in turns_7d) / 7),
+                "dynamic": None, "snapshot": snapshot("quota_week"),
+            },
         }
 
     def fetch_official_agy_usage(self, force: bool = False) -> Dict[str, Any]:
+        with self._official_lock:
+            result = self._fetch_official_agy_usage(force)
+            self._official_usage_error = None if result.get("success") else result.get("error")
+            return result
+
+    def get_official_usage_snapshot(self):
+        if not self._official_usage_cache:
+            return None
+        age = max(0, int(time.time() - self._official_usage_time))
+        return {**self._official_usage_cache, "age_seconds": age,
+                "stale": age >= 120 or bool(self._official_usage_error),
+                "error": self._official_usage_error}
+
+    def _fetch_official_agy_usage(self, force: bool = False) -> Dict[str, Any]:
         """
         调用官方 agy.exe -p /usage --output-format json
         直接获取官方云端实时订阅配额（Gemini 与 Claude 模型组的 5H / 周额度百分比与重置时间）
@@ -545,8 +548,8 @@ class TokenScannerService:
         import subprocess
 
         now = time.time()
-        if not force and self._official_usage_cache and (now - self._official_usage_time < 120):
-            return self._official_usage_cache
+        if not force and not self._official_usage_error and self._official_usage_cache and (now - self._official_usage_time < 120):
+            return self.get_official_usage_snapshot()
 
         agy_path = shutil.which("agy")
         if not agy_path:
@@ -571,7 +574,7 @@ class TokenScannerService:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=45,
                 startupinfo=startupinfo,
                 creationflags=creationflags,
                 encoding="utf-8",
@@ -583,6 +586,8 @@ class TokenScannerService:
             raw = json.loads(res.stdout)
             cmd_data = raw.get("command", {}).get("data", {})
             groups = cmd_data.get("groups", [])
+            if not isinstance(groups, list) or not groups:
+                raise ValueError("官方响应未包含有效配额分组")
 
             parsed_groups = []
             for g in groups:
@@ -592,7 +597,9 @@ class TokenScannerService:
                     "buckets": []
                 }
                 for b in g.get("buckets", []):
-                    rem_frac = b.get("remaining_fraction", 1.0)
+                    rem_frac = b.get("remaining_fraction")
+                    if isinstance(rem_frac, bool) or not isinstance(rem_frac, (int, float)) or not 0 <= rem_frac <= 1:
+                        raise ValueError("官方响应缺少有效 remaining_fraction")
                     rem_pct = round(rem_frac * 100, 1)
                     used_pct = round((1.0 - rem_frac) * 100, 1)
                     g_item["buckets"].append({
@@ -606,9 +613,14 @@ class TokenScannerService:
                     })
                 parsed_groups.append(g_item)
 
+            if not any(g["buckets"] for g in parsed_groups):
+                raise ValueError("官方响应未包含有效配额项")
+            now = time.time()
             result = {
                 "success": True,
                 "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "fetched_at_sec": int(now),
+                "stale": False,
                 "description": cmd_data.get("description", ""),
                 "groups": parsed_groups
             }
@@ -617,8 +629,6 @@ class TokenScannerService:
             return result
 
         except Exception as e:
-            if self._official_usage_cache:
-                return self._official_usage_cache
             return {"success": False, "error": f"执行 agy /usage 异常: {str(e)}"}
 
     def calculate_trend(self, turns: List[Dict[str, Any]], time_range: str) -> List[Dict[str, Any]]:
@@ -630,13 +640,14 @@ class TokenScannerService:
         if time_range in ("today", "yesterday"):
             # 按小时聚合
             hourly_map = defaultdict(lambda: {
-                "input": 0, "cache_read": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
+                "input": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
             })
             for t in turns:
                 h_key = f"{t['hour_num']:02d}:00"
                 bucket = hourly_map[h_key]
                 bucket["input"] += t["input_tokens"]
                 bucket["cache_read"] += t["cache_read_tokens"]
+                bucket["cache_write"] += t.get("cache_write_tokens", 0)
                 bucket["thinking"] += t["thinking_tokens"]
                 bucket["response"] += t["response_tokens"]
                 bucket["total"] += t["total_tokens"]
@@ -647,12 +658,13 @@ class TokenScannerService:
             for h in range(24):
                 h_key = f"{h:02d}:00"
                 b = hourly_map.get(h_key, {
-                    "input": 0, "cache_read": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
+                    "input": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
                 })
                 trend.append({
                     "time": h_key,
                     "input": b["input"],
                     "cache_read": b["cache_read"],
+                    "cache_write": b["cache_write"],
                     "thinking": b["thinking"],
                     "response": b["response"],
                     "total": b["total"],
@@ -663,13 +675,14 @@ class TokenScannerService:
         else:
             # 按天聚合
             daily_map = defaultdict(lambda: {
-                "input": 0, "cache_read": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
+                "input": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "response": 0, "total": 0, "calls": 0
             })
             for t in turns:
                 d_key = t["date_str"]
                 bucket = daily_map[d_key]
                 bucket["input"] += t["input_tokens"]
                 bucket["cache_read"] += t["cache_read_tokens"]
+                bucket["cache_write"] += t.get("cache_write_tokens", 0)
                 bucket["thinking"] += t["thinking_tokens"]
                 bucket["response"] += t["response_tokens"]
                 bucket["total"] += t["total_tokens"]
@@ -682,6 +695,7 @@ class TokenScannerService:
                     "time": d_key,
                     "input": b["input"],
                     "cache_read": b["cache_read"],
+                    "cache_write": b["cache_write"],
                     "thinking": b["thinking"],
                     "response": b["response"],
                     "total": b["total"],
@@ -692,13 +706,14 @@ class TokenScannerService:
     def calculate_models(self, turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """计算模型维度的消耗占比与明细"""
         model_map = defaultdict(lambda: {
-            "calls": 0, "input": 0, "cache_read": 0, "thinking": 0, "response": 0, "total": 0
+            "calls": 0, "input": 0, "cache_read": 0, "cache_write": 0, "thinking": 0, "response": 0, "total": 0
         })
         for t in turns:
             m = model_map[t["model"]]
             m["calls"] += 1
             m["input"] += t["input_tokens"]
             m["cache_read"] += t["cache_read_tokens"]
+            m["cache_write"] += t.get("cache_write_tokens", 0)
             m["thinking"] += t["thinking_tokens"]
             m["response"] += t["response_tokens"]
             m["total"] += t["total_tokens"]
@@ -712,6 +727,7 @@ class TokenScannerService:
                 "calls": st["calls"],
                 "input_tokens": st["input"],
                 "cache_read_tokens": st["cache_read"],
+                "cache_write_tokens": st["cache_write"],
                 "thinking_tokens": st["thinking"],
                 "response_tokens": st["response"],
                 "total_tokens": st["total"],
@@ -726,10 +742,10 @@ class TokenScannerService:
 
         session_groups = defaultdict(list)
         for t in turns:
-            session_groups[t["session_id"]].append(t)
+            session_groups[(t.get("source_app", "antigravity"), t["session_id"])].append(t)
 
         rows = []
-        for sid, s_turns in session_groups.items():
+        for (source_app, sid), s_turns in session_groups.items():
             meta = self._summary_meta.get(sid, {})
             title = meta.get("title", s_turns[0].get("session_title", sid[:12]))
             workspace = meta.get("workspace_uris", "")
@@ -745,21 +761,15 @@ class TokenScannerService:
             if s_tot_out == 0:
                 s_tot_out = s_think + s_resp
 
-            # 费用计算（促销期与标准期，美元与人民币）
-            cost_promo = (s_input / 1_000_000) * 0.75 + (s_cache_r / 1_000_000) * 0.0375 + (s_tot_out / 1_000_000) * 3.75
-            cost_std = (s_input / 1_000_000) * 1.50 + (s_cache_r / 1_000_000) * 0.075 + (s_tot_out / 1_000_000) * 7.50
-            cost_saved = (s_cache_r / 1_000_000) * (0.75 - 0.0375)
+            session_costs = calculate_costs(s_turns, self.pricing_config)
+            costs = session_costs["configured"]
+            priced_turns = []
+            for turn in s_turns:
+                cost = calculate_costs([turn], self.pricing_config)["configured"]
+                priced_turns.append({**turn, "cost_usd": cost["total_usd"],
+                    "cost_promo_usd": cost["total_usd"], "cost_std_usd": cost["total_usd"],
+                    "saved_promo_usd": cost["saved_usd"]})
 
-            # 给每个 turn 附加上预估费用
-            for t in s_turns:
-                t_in = t.get("input_tokens", 0)
-                t_cache = t.get("cache_read_tokens", 0)
-                t_out = t.get("total_output_tokens", 0) or (t.get("thinking_tokens", 0) + t.get("response_tokens", 0))
-                t["cost_promo_usd"] = round((t_in / 1_000_000) * 0.75 + (t_cache / 1_000_000) * 0.0375 + (t_out / 1_000_000) * 3.75, 5)
-                t["cost_std_usd"] = round((t_in / 1_000_000) * 1.50 + (t_cache / 1_000_000) * 0.075 + (t_out / 1_000_000) * 7.50, 5)
-                t["saved_promo_usd"] = round((t_cache / 1_000_000) * (0.75 - 0.0375), 5)
-
-            # 最新活跃时间
             latest_ts = max(t["timestamp_sec"] for t in s_turns)
             latest_time_str = datetime.fromtimestamp(latest_ts).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -781,13 +791,16 @@ class TokenScannerService:
                 "thinking_tokens": s_think,
                 "response_tokens": s_resp,
                 "total_tokens": s_tot,
-                "cost_promo_usd": round(cost_promo, 4),
-                "cost_promo_cny": round(cost_promo * 7.23, 2),
-                "cost_std_usd": round(cost_std, 4),
-                "cost_saved_usd": round(cost_saved, 4),
+                "cache_write_tokens": sum(t.get("cache_write_tokens", 0) for t in s_turns),
+                "cost_usd": costs["total_usd"],
+                "cost_promo_usd": costs["total_usd"],
+                "cost_promo_cny": costs["total_cny"],
+                "cost_std_usd": costs["total_usd"],
+                "cost_saved_usd": costs["saved_usd"],
+                "unpriced_turns": session_costs["unpriced_turns"],
                 "avg_speed_tps": s_avg_speed,
                 "total_duration_sec": s_dur,
-                "turns": sorted(s_turns, key=lambda x: x["turn_idx"]),
+                "turns": sorted(priced_turns, key=lambda x: (x["timestamp_sec"], x["turn_idx"])),
             })
 
         # 过滤搜索 (支持标题、会话ID、模型名称及工具来源)
@@ -837,15 +850,17 @@ class TokenScannerService:
             "ttft_sec",
             "cost_promo_usd",
             "cost_std_usd",
+            "cost_usd",
+            "pricing_status",
             "response_id",
         ])
         writer.writeheader()
         for t in sorted(turns, key=lambda x: x["timestamp_sec"], reverse=True):
             t_in = t.get("input_tokens", 0)
             t_cache = t.get("cache_read_tokens", 0)
-            t_out = t.get("total_output_tokens", 0) or (t.get("thinking_tokens", 0) + t.get("response_tokens", 0))
-            cost_p = round((t_in / 1_000_000) * 0.75 + (t_cache / 1_000_000) * 0.0375 + (t_out / 1_000_000) * 3.75, 5)
-            cost_s = round((t_in / 1_000_000) * 1.50 + (t_cache / 1_000_000) * 0.075 + (t_out / 1_000_000) * 7.50, 5)
+            t_out = t.get("total_output_tokens", 0)
+            cost = calculate_costs([t], self.pricing_config)["configured"]
+            cost_p = cost_s = cost["total_usd"]
 
             writer.writerow({
                 "timestamp": t.get("timestamp_str", ""),
@@ -867,6 +882,8 @@ class TokenScannerService:
                 "ttft_sec": t.get("ttft_sec", ""),
                 "cost_promo_usd": cost_p,
                 "cost_std_usd": cost_s,
+                "cost_usd": cost["total_usd"],
+                "pricing_status": "unpriced" if cost["total_usd"] is None else "configured",
                 "response_id": t.get("response_id", ""),
             })
         return output.getvalue()

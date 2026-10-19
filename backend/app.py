@@ -11,12 +11,13 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Query, Response, Body
+from fastapi import FastAPI, Query, Response, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .scanner import scanner_service
+from .pricing import validate_pricing
 
 app = FastAPI(title="Antigravity Token Dashboard", version="1.0.0")
 
@@ -71,24 +72,41 @@ def load_quota_config() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    # 默认值
-    now_ts = int(time.time())
+    # No calibration exists until a user actually provides one.
     return {
-        "quota_5h": {
-            "remaining_pct": 95,
-            "reset_seconds": 16000,
-            "reset_time_str": "4小时28分",
-            "capacity_tokens": 10000000,
-            "calibrated_at": now_ts,
-        },
-        "quota_week": {
-            "remaining_pct": 88,
-            "reset_seconds": 580000,
-            "reset_time_str": "6天18小时",
-            "capacity_tokens": 50000000,
-            "calibrated_at": now_ts,
-        }
+        name: {"remaining_pct": None, "reset_seconds": 0, "reset_time_str": "", "calibrated_at": 0}
+        for name in ("quota_5h", "quota_week")
     }
+
+
+def load_pricing_config():
+    path = get_config_file().with_name("pricing_config.json")
+    try:
+        return validate_pricing(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        return {"exchange_rate": 7.23, "models": {}}
+
+
+@app.get("/api/pricing-config")
+def get_pricing_config():
+    turns = scanner_service.get_all_turns()
+    observed = sorted({(t.get("source_app", "antigravity"), t["model"]) for t in turns})
+    return {"success": True, "config": load_pricing_config(),
+            "models": [{"source_app": source, "model": model, "key": f"{source}:{model}"}
+                       for source, model in observed]}
+
+
+@app.post("/api/pricing-config")
+def save_pricing_config(cfg: dict = Body(...)):
+    try:
+        cfg = validate_pricing(cfg)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    path = get_config_file().with_name("pricing_config.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    scanner_service.pricing_config = cfg
+    return {"success": True, "config": cfg}
 
 
 @app.on_event("startup")
@@ -113,12 +131,13 @@ def get_overview(
     all_turns = scanner_service.get_all_turns(force_scan=force_scan)
     filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
 
+    scanner_service.pricing_config = load_pricing_config()
     summary = scanner_service.calculate_summary(filtered)
     trend = scanner_service.calculate_trend(filtered, time_range=range)
     models = scanner_service.calculate_models(filtered)
-    quotas = scanner_service.calculate_quotas(all_turns)
     custom_quota = load_quota_config()
-    official_quotas = scanner_service._official_usage_cache
+    official_quotas = scanner_service.get_official_usage_snapshot()
+    quotas = scanner_service.calculate_quotas(all_turns, custom_quota=custom_quota, source=source)
 
     return {
         "success": True,
@@ -153,6 +172,16 @@ def get_quota_config():
 @app.post("/api/quota-config")
 def save_quota_config(cfg: dict = Body(...)):
     """保存用户手动设置的配额配置"""
+    for name in ("quota_5h", "quota_week"):
+        value = cfg.get(name, {})
+        if not isinstance(value, dict):
+            raise HTTPException(422, "配额格式错误")
+        pct = value.get("remaining_pct")
+        seconds = value.get("reset_seconds", 0)
+        if pct is not None and (isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 0 <= pct <= 100):
+            raise HTTPException(422, "剩余百分比必须在 0 到 100 之间")
+        if isinstance(seconds, bool) or not isinstance(seconds, int) or not 0 <= seconds <= 366 * 86400:
+            raise HTTPException(422, "重置秒数格式错误")
     cfg_file = get_config_file()
     cfg_file.parent.mkdir(parents=True, exist_ok=True)
     now_ts = int(time.time())
@@ -190,6 +219,7 @@ def get_sessions(
     response.headers["Expires"] = "0"
     all_turns = scanner_service.get_all_turns()
     filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
+    scanner_service.pricing_config = load_pricing_config()
     result = scanner_service.get_sessions_table(filtered, page=page, page_size=page_size, search=search, source=source)
     return {
         "success": True,
@@ -225,6 +255,7 @@ def export_csv(
     """导出当前筛选结果为带 UTF-8 BOM 的 CSV 报表"""
     all_turns = scanner_service.get_all_turns()
     filtered = scanner_service.filter_turns(all_turns, time_range=range, start_date=start_date, end_date=end_date, source=source)
+    scanner_service.pricing_config = load_pricing_config()
     csv_content = scanner_service.generate_csv_report(filtered)
 
     filename = f"multi_agent_tokens_{range}_{int(time.time())}.csv"

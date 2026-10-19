@@ -10,6 +10,8 @@ import sys
 import json
 import re
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 # 将项目根目录加入 sys.path
@@ -79,6 +81,16 @@ class TestFrontendIntegrity(unittest.TestCase):
 
         self.assertEqual(undeclared, [], f"发现未声明的 .value 响应式变量: {undeclared}")
 
+    def test_inline_javascript_syntax(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is required for JavaScript syntax validation")
+        result = subprocess.run([node, "--check"], input=self.main_script, text=True,
+                                encoding="utf-8", capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_setup_return_variables_are_declared(self):
         """确保 setup() 返回的对象中所有键名在当前作用域均有定义"""
         idx = self.html.rfind('return {')
@@ -105,6 +117,18 @@ class TestBackendAPI(unittest.TestCase):
     """3. 后端 FastAPI RESTful 接口契约测试"""
 
     def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="dashboard-api-test-")
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        scanner = TokenScannerService(str(root))
+        scanner.get_codex_root = lambda: root / "codex"
+        scanner.get_claude_root = lambda: root / "claude"
+        service_patch = patch("backend.app.scanner_service", scanner)
+        config_patch = patch("backend.app.get_config_file", return_value=root / "quota_config.json")
+        service_patch.start()
+        config_patch.start()
+        self.addCleanup(service_patch.stop)
+        self.addCleanup(config_patch.stop)
         self.client = TestClient(app)
 
     def test_serve_index(self):
@@ -179,6 +203,22 @@ class TestBackendAPI(unittest.TestCase):
         self.assertIn("cost_ms", data)
         self.assertIn("刷新成功", data.get("message", ""))
 
+    def test_pricing_configuration_roundtrip_and_validation(self):
+        config = {"exchange_rate": 7.1, "models": {"codex:test": {
+            "input": 2, "cache_read": 0.2, "cache_write": 3, "output": 10}}}
+        response = self.client.post("/api/pricing-config", json=config)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/api/pricing-config").json()["config"], config)
+        config["models"]["codex:test"]["cache_write"] = -1
+        self.assertEqual(self.client.post("/api/pricing-config", json=config).status_code, 422)
+
+    def test_quota_defaults_are_unknown_and_invalid_values_are_rejected(self):
+        config = self.client.get("/api/quota-config").json()["config"]
+        self.assertIsNone(config["quota_5h"]["remaining_pct"])
+        for value in (-1, 101, "80", True):
+            response = self.client.post("/api/quota-config", json={"quota_5h": {"remaining_pct": value}})
+            self.assertEqual(response.status_code, 422)
+
     def test_api_export_csv(self):
         res = self.client.get("/api/export-csv?range=today")
         self.assertEqual(res.status_code, 200)
@@ -222,7 +262,16 @@ class TestScannerEngine(unittest.TestCase):
     """4. SQLite 解析与聚合计算核心业务逻辑测试"""
 
     def setUp(self):
-        self.scanner = TokenScannerService()
+        temp = tempfile.TemporaryDirectory(prefix="dashboard-scanner-test-")
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        self.scanner = TokenScannerService(str(root))
+        self.scanner.get_codex_root = lambda: root / "codex"
+        self.scanner.get_claude_root = lambda: root / "claude"
+        self.scanner.pricing_config = {"exchange_rate": 7.23, "models": {
+            "antigravity:claude-3-7-sonnet": {"input": 3, "cache_read": 0.3, "cache_write": 3.75, "output": 15},
+            "antigravity:gemini-2.5-pro": {"input": 1.25, "cache_read": 0.125, "cache_write": 1.25, "output": 10},
+        }}
         self.mock_turns = [
             {
                 "session_id": "mock-session-1",
@@ -382,7 +431,7 @@ class TestScannerEngine(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["session_id"], "codex-test-sid-123")
             self.assertEqual(records[0]["model"], "gpt-5.5")
-            self.assertEqual(records[0]["input_tokens"], 1000)
+            self.assertEqual(records[0]["input_tokens"], 200)
             self.assertEqual(records[0]["cache_read_tokens"], 800)
             self.assertEqual(records[0]["thinking_tokens"], 50)
             self.assertEqual(records[0]["total_tokens"], 1150)

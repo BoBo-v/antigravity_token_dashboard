@@ -1,108 +1,70 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Anthropic Claude Code 会话 (.jsonl) Token 解析模块
-"""
+"""Claude Code logs repeat message usage for each streamed content block."""
 
 import json
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, List, Optional, Any
+
+from .usage import local_timestamp, token_count
 
 
 def read_claude_session(jsonl_path: Path, titles_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    """
-    解析单个 Claude Code .jsonl 会话文件中的所有有效 Token 轮次记录
-    """
     if not jsonl_path.is_file():
         return []
-
-    records = []
-    file_mtime = int(jsonl_path.stat().st_mtime)
+    fallback = jsonl_path.stat().st_mtime
     sid = jsonl_path.stem
-    session_title = ""
-    turn_idx = 0
-
+    title = ""
+    messages = {}
+    token_fields = {
+        "input_tokens": "input_tokens", "cache_read_tokens": "cache_read_input_tokens",
+        "cache_write_tokens": "cache_creation_input_tokens", "response_tokens": "output_tokens",
+    }
     try:
-        with open(jsonl_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
+        with jsonl_path.open(encoding="utf-8", errors="replace") as stream:
+            for line_number, line in enumerate(stream):
                 try:
                     obj = json.loads(line)
-                except Exception:
+                except (ValueError, TypeError):
                     continue
-
-                otype = obj.get("type")
-                if otype == "user" and not session_title:
-                    msg = obj.get("message", {})
-                    if isinstance(msg, dict):
-                        content = msg.get("content", "")
-                        if isinstance(content, str) and content:
-                            session_title = content[:60].strip()
-                        elif isinstance(content, list) and content:
-                            session_title = str(content[0].get("text", ""))[:60].strip()
-
-                elif otype == "assistant":
-                    msg = obj.get("message", {})
-                    usage = msg.get("usage", {})
-                    if not isinstance(usage, dict):
-                        continue
-
-                    in_tok = usage.get("input_tokens", 0)
-                    cache_r = usage.get("cache_read_input_tokens", 0)
-                    cache_w = usage.get("cache_creation_input_tokens", 0)
-                    out_tok = usage.get("output_tokens", 0)
-                    tot = in_tok + cache_r + cache_w + out_tok
-                    model = msg.get("model", "claude-code")
-
-                    # 排除占位或无 token 消耗错误项（如 <synthetic> 登录提示）
-                    if tot <= 0 or model == "<synthetic>":
-                        continue
-
-                    ts_raw = obj.get("timestamp")
-                    ts_sec = file_mtime
-                    if ts_raw:
-                        try:
-                            dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                            ts_sec = int(dt.timestamp())
-                        except Exception:
-                            dt = datetime.fromtimestamp(ts_sec)
-                    else:
-                        dt = datetime.fromtimestamp(ts_sec)
-
-                    turn_idx += 1
-                    records.append({
-                        "turn_idx": turn_idx,
-                        "model": model,
-                        "input_tokens": in_tok,
-                        "cache_read_tokens": cache_r,
-                        "cache_write_tokens": cache_w,
-                        "thinking_tokens": 0,
-                        "response_tokens": out_tok,
-                        "total_output_tokens": out_tok,
-                        "total_tokens": tot,
-                        "response_id": msg.get("id") or f"claude_call_{turn_idx}",
-                        "gen_uuid": f"claude_{sid}_{turn_idx}",
-                        "timestamp_sec": ts_sec,
-                        "timestamp_str": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "date_str": dt.strftime("%Y-%m-%d"),
-                        "hour_str": dt.strftime("%Y-%m-%d %H:00"),
-                        "hour_num": dt.hour,
-                        "duration_sec": 0.0,
-                        "ttft_sec": None,
-                        "speed_tps": 0.0,
-                        "source_app": "claude-code",
-                    })
-    except Exception:
+                if not isinstance(obj, dict) or not isinstance(obj.get("message"), dict):
+                    continue
+                msg = obj["message"]
+                if obj.get("type") == "user" and not title:
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        title = content[:60].strip()
+                    elif isinstance(content, list):
+                        title = next((part["text"][:60].strip() for part in content
+                                      if isinstance(part, dict) and isinstance(part.get("text"), str)), "")
+                if obj.get("type") != "assistant" or msg.get("model") == "<synthetic>":
+                    continue
+                usage = msg.get("usage")
+                if not isinstance(usage, dict):
+                    continue
+                counts = {dest: token_count(usage.get(src)) for dest, src in token_fields.items()}
+                if not sum(counts.values()):
+                    continue
+                message_id = msg.get("id") or obj.get("uuid") or f"line_{line_number}"
+                model = msg.get("model") or "Unknown Model"
+                key = (model, message_id)
+                if key in messages:
+                    record = messages[key]
+                    for name, value in counts.items():
+                        record[name] = max(record[name], value)
+                else:
+                    record = {
+                        "turn_idx": len(messages) + 1, "model": model, **counts,
+                        "thinking_tokens": 0, "response_id": message_id,
+                        "gen_uuid": f"claude_{message_id}",
+                        **local_timestamp(obj.get("timestamp"), fallback),
+                        "duration_sec": 0.0, "ttft_sec": None, "speed_tps": 0.0,
+                        "source_app": "claude-code", "session_id": sid,
+                    }
+                    messages[key] = record
+                record["total_output_tokens"] = record["response_tokens"]
+                record["total_tokens"] = sum(record[field] for field in token_fields)
+    except OSError:
         pass
-
-    resolved_title = ""
-    if titles_map and sid in titles_map:
-        resolved_title = titles_map[sid]
-    if not resolved_title:
-        resolved_title = session_title or sid[:16]
-
-    for r in records:
-        r["session_id"] = sid
-        r["session_title"] = resolved_title
-
-    return records
+    title = (titles_map or {}).get(sid) or title or sid[:16]
+    for record in messages.values():
+        record["session_title"] = title
+    return list(messages.values())
