@@ -462,6 +462,56 @@ class TestLaunchersAndScripts(unittest.TestCase):
             is_ascii = all(b < 128 for b in raw_bytes)
             self.assertTrue(is_ascii, f"启动脚本 {name} 包含非 ASCII 字符，会导致 CMD/WScript 编码损坏")
 
+    def test_fetch_official_agy_usage_subprocess_params(self):
+        """确保官方配额查询时调用 subprocess 严格使用 DEVNULL 与 CREATE_NO_WINDOW 杜绝控制台闪窗"""
+        import json
+        import subprocess
+        from unittest.mock import patch, MagicMock
+        from backend.scanner import scanner_service
+
+        mock_payload = {
+            "command": {
+                "data": {
+                    "groups": [{
+                        "name": "Gemini Models",
+                        "buckets": [{
+                            "id": "gemini-5h",
+                            "name": "Five Hour Limit Remaining",
+                            "window": "5h",
+                            "remaining_fraction": 0.9,
+                            "reset_time": "2026-10-27T12:00:00Z"
+                        }]
+                    }]
+                }
+            }
+        }
+
+        with patch("shutil.which", return_value="C:\fake\agy.exe"), patch("subprocess.run") as mock_run:
+            mock_res = MagicMock()
+            mock_res.returncode = 0
+            mock_res.stdout = json.dumps(mock_payload)
+            mock_res.stderr = ""
+            mock_run.return_value = mock_res
+
+            res = scanner_service.fetch_official_agy_usage(force=True)
+            self.assertTrue(res.get("success"))
+            mock_run.assert_called_once()
+            _, kwargs = mock_run.call_args
+            self.assertEqual(kwargs.get("stdin"), subprocess.DEVNULL, "必须配置 stdin=DEVNULL 以防无控制台父进程挂载窗口")
+            self.assertEqual(kwargs.get("stdout"), subprocess.PIPE)
+            self.assertEqual(kwargs.get("stderr"), subprocess.PIPE)
+            self.assertEqual(kwargs.get("cwd"), str(Path.home()))
+            if sys.platform == "win32":
+                self.assertEqual(kwargs.get("creationflags"), 0x08000000, "必须配置 CREATE_NO_WINDOW")
+                self.assertIsNotNone(kwargs.get("startupinfo"))
+                self.assertEqual(kwargs["startupinfo"].wShowWindow, 0)
+
+    def test_index_html_no_periodic_official_sync(self):
+        """确保前端自动轮询时不静默触发官方配额查询"""
+        html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
+        # 验证 fetchData 内部不再捆绑 120000 定时调用 fetchOfficialUsage
+        self.assertNotIn("if (Date.now() - lastOfficialAttempt >= 120000) fetchOfficialUsage(false);", html)
+
     def test_kill_port_owner_zero_subprocess(self):
         """测试端口清理函数在未占用时毫秒级瞬时退出，不调用外部进程"""
         from desktop import kill_port_owner

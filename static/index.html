@@ -1929,7 +1929,6 @@ Five Hour Limit Remaining
 
         const fetchData = async (silent = false) => {
           await Promise.all([fetchOverview(silent), fetchSessions(silent)]);
-          if (Date.now() - lastOfficialAttempt >= 120000) fetchOfficialUsage(false);
         };
 
         // 平台来源切换

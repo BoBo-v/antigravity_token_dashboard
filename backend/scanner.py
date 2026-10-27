@@ -572,11 +572,14 @@ class TokenScannerService:
 
             res = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=45,
                 startupinfo=startupinfo,
                 creationflags=creationflags,
+                cwd=str(Path.home()),
                 encoding="utf-8",
                 errors="ignore"
             )

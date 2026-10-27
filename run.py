@@ -51,6 +51,7 @@ def kill_port_owner(port: int = 8765):
             creationflags=creationflags,
             startupinfo=startupinfo,
             shell=False,
+            stdin=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         ).decode('utf-8', errors='ignore')
 
@@ -68,6 +69,7 @@ def kill_port_owner(port: int = 8765):
                             creationflags=creationflags,
                             startupinfo=startupinfo,
                             shell=False,
+                            stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL
                         )
